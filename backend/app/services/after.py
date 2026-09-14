@@ -1,0 +1,278 @@
+"""After (אפטר) quota, candidates, sleep warnings, and publish commit."""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from dataclasses import dataclass, field
+from datetime import date, datetime, timedelta
+from typing import Dict, List, Optional, Tuple
+
+from sqlalchemy.orm import Session, joinedload
+
+from app.models import (
+    AfterDraft,
+    AfterGrant,
+    Assignment,
+    KanimRule,
+    KanimRuleKind,
+    LeavePeriod,
+    LeaveType,
+    Mission,
+    MissionType,
+    Person,
+    Schedule,
+    ScheduleStatus,
+)
+
+
+AFTER_HISTORY_DAYS = 30
+
+
+def _is_israeli_weekday(d: date) -> bool:
+    # Mon=0 ... Sun=6. Israeli weekdays = Sun–Thu.
+    return d.weekday() in (6, 0, 1, 2, 3)
+
+
+def resolve_kanim_for_date(rules: List[KanimRule], d: date) -> int:
+    """Specific date overrides weekend/weekday. Missing rule → 0."""
+    for r in rules:
+        if r.kind == KanimRuleKind.SPECIFIC_DATE and r.specific_date == d:
+            return int(r.min_count)
+    kind = KanimRuleKind.WEEKDAY if _is_israeli_weekday(d) else KanimRuleKind.WEEKEND
+    for r in rules:
+        if r.kind == kind:
+            return int(r.min_count)
+    return 0
+
+
+def max_kanim_in_window(
+    rules: List[KanimRule], window_start: datetime, window_end: datetime
+) -> int:
+    """Strictest (highest) minimum staffing across days covered by the window."""
+    if window_end <= window_start:
+        return resolve_kanim_for_date(rules, window_start.date())
+    day = window_start.date()
+    last = (window_end - timedelta(microseconds=1)).date()
+    peak = 0
+    while day <= last:
+        peak = max(peak, resolve_kanim_for_date(rules, day))
+        day += timedelta(days=1)
+    return peak
+
+
+def after_count_map(
+    db: Session, company_id: int, as_of: Optional[datetime] = None
+) -> Dict[int, int]:
+    """Published after grants overlapping the last 30 days ending at as_of."""
+    as_of = as_of or datetime.utcnow()
+    since = as_of - timedelta(days=AFTER_HISTORY_DAYS)
+    counts: Dict[int, int] = defaultdict(int)
+    rows = (
+        db.query(AfterGrant)
+        .filter(
+            AfterGrant.company_id == company_id,
+            AfterGrant.start_at < as_of,
+            AfterGrant.end_at > since,
+        )
+        .all()
+    )
+    for g in rows:
+        counts[g.person_id] += 1
+    return dict(counts)
+
+
+def _mission_is_night(start: datetime, end: datetime) -> bool:
+    """True if the mission overlaps local night 22:00–06:00."""
+    t = start
+    while t < end:
+        if t.hour >= 22 or t.hour < 6:
+            return True
+        t += timedelta(hours=1)
+    return False
+
+
+@dataclass
+class AfterCandidate:
+    person_id: int
+    person_name: str
+    after_count_30d: int
+    sleep_warning: bool = False
+    sleep_warning_message: Optional[str] = None
+    recommended_rank: int = 0
+
+
+@dataclass
+class AfterPreview:
+    total_active: int
+    min_kanim: int
+    after_quota: int
+    candidates: List[AfterCandidate] = field(default_factory=list)
+    drafts: List[AfterDraft] = field(default_factory=list)
+
+
+def build_after_preview(db: Session, schedule: Schedule) -> AfterPreview:
+    rules = (
+        db.query(KanimRule).filter(KanimRule.company_id == schedule.company_id).all()
+    )
+    min_kanim = max_kanim_in_window(rules, schedule.window_start, schedule.window_end)
+    people = (
+        db.query(Person)
+        .filter(Person.company_id == schedule.company_id, Person.is_active.is_(True))
+        .all()
+    )
+    total_active = len(people)
+    after_quota = max(0, total_active - min_kanim)
+
+    assigned_ids = {
+        a.person_id
+        for a in db.query(Assignment).filter(Assignment.schedule_id == schedule.id).all()
+    }
+
+    after_counts = after_count_map(db, schedule.company_id, schedule.window_start)
+
+    # Recent missions for sleep warnings (any company mission ending before window)
+    lookback = schedule.window_start - timedelta(days=2)
+    recent_missions = (
+        db.query(Mission)
+        .options(joinedload(Mission.mission_type))
+        .filter(
+            Mission.company_id == schedule.company_id,
+            Mission.end_at >= lookback,
+            Mission.end_at <= schedule.window_start,
+        )
+        .all()
+    )
+    # person -> last mission end via published/historical assignments is heavy;
+    # also check assignments on this schedule that end before someone would leave.
+    # For free candidates (no assignment in window), use prior missions linked via
+    # any assignment in overlapping schedules... simpler: scan Assignment join Mission
+    prior = (
+        db.query(Assignment, Mission, MissionType)
+        .join(Mission, Mission.id == Assignment.mission_id)
+        .join(MissionType, MissionType.id == Mission.mission_type_id)
+        .filter(
+            Mission.company_id == schedule.company_id,
+            Mission.end_at >= lookback,
+            Mission.end_at <= schedule.window_start,
+        )
+        .all()
+    )
+    last_by_person: Dict[int, Tuple[datetime, MissionType, bool]] = {}
+    for a, mission, mt in prior:
+        night = _mission_is_night(mission.start_at, mission.end_at)
+        prev = last_by_person.get(a.person_id)
+        if not prev or mission.end_at > prev[0]:
+            last_by_person[a.person_id] = (mission.end_at, mt, night)
+
+    # Also consider orphan recent_missions without going through assignment — skip;
+    # sleep is about who served.
+    _ = recent_missions
+
+    free = [p for p in people if p.id not in assigned_ids]
+    free.sort(key=lambda p: (after_counts.get(p.id, 0), p.full_name))
+
+    candidates: List[AfterCandidate] = []
+    for rank, p in enumerate(free, start=1):
+        sleep_warning = False
+        msg = None
+        last = last_by_person.get(p.id)
+        if last:
+            end_at, mt, night = last
+            need = float(mt.required_sleep_hours_before_after or 0)
+            if need > 0:
+                ready = end_at + timedelta(hours=need)
+                if schedule.window_start < ready:
+                    sleep_warning = True
+                    msg = (
+                        f"ייתכן שלא ישן מספיק אחרי {mt.name} "
+                        f"(נדרשות {need:g} ש׳ שינה עד {ready.strftime('%d.%m %H:%M')})"
+                    )
+                    if night:
+                        msg = "משימת לילה · " + msg
+        candidates.append(
+            AfterCandidate(
+                person_id=p.id,
+                person_name=p.full_name,
+                after_count_30d=after_counts.get(p.id, 0),
+                sleep_warning=sleep_warning,
+                sleep_warning_message=msg,
+                recommended_rank=rank,
+            )
+        )
+
+    drafts = (
+        db.query(AfterDraft)
+        .filter(AfterDraft.schedule_id == schedule.id)
+        .order_by(AfterDraft.start_at)
+        .all()
+    )
+    return AfterPreview(
+        total_active=total_active,
+        min_kanim=min_kanim,
+        after_quota=after_quota,
+        candidates=candidates,
+        drafts=drafts,
+    )
+
+
+def save_after_drafts(
+    db: Session,
+    schedule: Schedule,
+    items: List[Tuple[int, datetime, datetime]],
+) -> List[AfterDraft]:
+    if schedule.status != ScheduleStatus.DRAFT:
+        raise ValueError("ניתן לערוך אפטרים רק בטיוטה")
+    preview = build_after_preview(db, schedule)
+    if len(items) > preview.after_quota:
+        raise ValueError(
+            f"חריגה ממכסת אפטר ({preview.after_quota}). בדקו את מספר הקנים בהגדרות."
+        )
+    eligible = {c.person_id for c in preview.candidates}
+    for person_id, start, end in items:
+        if person_id not in eligible:
+            raise ValueError("ניתן לפרגן אפטר רק לחיילים ללא משימה בחלון")
+        if end <= start:
+            raise ValueError("סיום האפטר חייב להיות אחרי ההתחלה")
+
+    db.query(AfterDraft).filter(AfterDraft.schedule_id == schedule.id).delete()
+    created: List[AfterDraft] = []
+    for person_id, start, end in items:
+        row = AfterDraft(
+            schedule_id=schedule.id,
+            person_id=person_id,
+            start_at=start,
+            end_at=end,
+        )
+        db.add(row)
+        created.append(row)
+    db.flush()
+    return created
+
+
+def commit_after_drafts_on_publish(db: Session, schedule: Schedule) -> None:
+    """Persist after grants + temporary leave. GENERATE != COMMIT until here."""
+    drafts = (
+        db.query(AfterDraft).filter(AfterDraft.schedule_id == schedule.id).all()
+    )
+    for d in drafts:
+        db.add(
+            AfterGrant(
+                company_id=schedule.company_id,
+                person_id=d.person_id,
+                schedule_id=schedule.id,
+                start_at=d.start_at,
+                end_at=d.end_at,
+                granted_at=datetime.utcnow(),
+            )
+        )
+        db.add(
+            LeavePeriod(
+                person_id=d.person_id,
+                leave_type=LeaveType.TEMPORARY_ABSENCE,
+                start_at=d.start_at,
+                end_at=d.end_at,
+                notes="אפטר (אושר בפרסום שיבוץ)",
+            )
+        )
+    db.query(AfterDraft).filter(AfterDraft.schedule_id == schedule.id).delete()
+    db.flush()

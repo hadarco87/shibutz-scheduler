@@ -16,6 +16,10 @@ build/
 .env.local
 .env.*.local
 
+# Local DB
+*.db
+*.db-journal
+
 # OS
 .DS_Store
 
