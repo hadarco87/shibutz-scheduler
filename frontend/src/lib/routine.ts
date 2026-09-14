@@ -20,7 +20,7 @@ export function buildRoutineSegments(
     t += durationHours;
     elapsed += durationHours;
   }
-  let rem = Math.round((24 - elapsed) * 1e6) / 1e6;
+  const rem = Math.round((24 - elapsed) * 1e6) / 1e6;
   if (rem > 1e-6 && remainderPolicy === "include_short") {
     segments.push({ startHour: ((t % 24) + 24) % 24, length: rem });
   }

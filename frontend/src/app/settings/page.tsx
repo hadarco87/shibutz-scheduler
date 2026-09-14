@@ -85,7 +85,7 @@ export default function SettingsPage() {
 
   const routineUneven = mtRecurring && !routineCoversFullDay(mtDuration);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     if (!token) return;
     const [q, r, mt, kr] = await Promise.all([
       api.qualifications(token),
@@ -97,11 +97,11 @@ export default function SettingsPage() {
     setRoles(r);
     setMissionTypes(mt);
     setKanimRules(kr);
-  }
+  }, [token]);
 
   useEffect(() => {
     refresh().catch((e) => setError(e.message));
-  }, [token]);
+  }, [refresh]);
 
   function resetRoleForm() {
     setEditingRoleId(null);
@@ -311,7 +311,7 @@ export default function SettingsPage() {
       setError("רמת הקושי חייבת להיות בין 1 ל־5 (1 הכי קל, 5 הכי קשה)");
       return;
     }
-    let time_windows: { start_minute: number; end_minute: number; sort_order: number }[] =
+    const time_windows: { start_minute: number; end_minute: number; sort_order: number }[] =
       [];
     if (!mtRecurring) {
       for (let i = 0; i < mtWindows.length; i++) {
