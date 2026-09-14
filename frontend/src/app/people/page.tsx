@@ -7,6 +7,7 @@ import {
   api,
   Leave,
   MissionType,
+  PeopleImportPreview,
   Person,
   Qualification,
   RecurringRestriction,
@@ -73,6 +74,14 @@ export default function PeoplePage() {
     ""
   );
   const [filterAfter, setFilterAfter] = useState<"" | "none" | "some">("");
+  const [importFile, setImportFile] = useState<File | null>(null);
+  const [importSheet, setImportSheet] = useState("");
+  const [importSheets, setImportSheets] = useState<string[]>([]);
+  const [importPreview, setImportPreview] = useState<PeopleImportPreview | null>(
+    null
+  );
+  const [importBusy, setImportBusy] = useState(false);
+  const [importMessage, setImportMessage] = useState("");
 
   async function refresh() {
     if (!token) return;
@@ -198,6 +207,55 @@ export default function PeoplePage() {
     setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
   }
 
+  async function onPreviewImport() {
+    if (!token || !importFile) return;
+    setImportBusy(true);
+    setError("");
+    setImportMessage("");
+    try {
+      const preview = await api.previewPeopleImport(
+        token,
+        importFile,
+        importSheet || undefined
+      );
+      setImportPreview(preview);
+      setImportSheets(preview.sheet_options);
+      setImportSheet(preview.sheet_name);
+    } catch (err) {
+      setImportPreview(null);
+      setError(err instanceof Error ? err.message : "ייבוא נכשל");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function onCommitImport() {
+    if (!token || !importFile) return;
+    setImportBusy(true);
+    setError("");
+    setImportMessage("");
+    try {
+      const result = await api.commitPeopleImport(
+        token,
+        importFile,
+        importSheet || importPreview?.sheet_name || undefined
+      );
+      setImportMessage(
+        `יובא מ«${result.sheet_name}»: ${result.created} חדשים, ${result.updated} עודכנו` +
+          (result.qualifications_created
+            ? `, ${result.qualifications_created} פק״לים חדשים`
+            : "")
+      );
+      setImportPreview(null);
+      setImportFile(null);
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ייבוא נכשל");
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
   function renderAvailability(personId: number) {
     const data = availabilityByPerson.get(personId);
     if (
@@ -245,11 +303,126 @@ export default function PeoplePage() {
           אם בוחרים — הוא מורשה רק לסוגים שנבחרו (לדוגמה רק ש״ג).
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
-        <form className="form-grid" onSubmit={onSubmit} style={{ maxWidth: 560 }}>
-          <label>
-            שם מלא
-            <input value={fullName} onChange={(e) => setFullName(e.target.value)} required />
-          </label>
+        {importMessage ? (
+          <div className="alert" style={{ marginBottom: "1rem" }}>
+            {importMessage}
+          </div>
+        ) : null}
+
+        <div className="import-box">
+          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>ייבוא מאקסל</h2>
+          <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+            העלו .xlsx / .xlsm (למשל לוח יציאות). המערכת מזהה אוטומטית עמודות כמו
+            שם, מספר אישי, טלפון, פק״ל, מחלקה וכיתה.
+          </p>
+          <div className="form-grid" style={{ maxWidth: 560 }}>
+            <label>
+              קובץ
+              <input
+                type="file"
+                accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
+                onChange={(e) => {
+                  const f = e.target.files?.[0] || null;
+                  setImportFile(f);
+                  setImportPreview(null);
+                  setImportSheets([]);
+                  setImportSheet("");
+                  setImportMessage("");
+                }}
+              />
+            </label>
+            {importSheets.length ? (
+              <label>
+                גיליון
+                <select
+                  value={importSheet}
+                  onChange={(e) => {
+                    setImportSheet(e.target.value);
+                    setImportPreview(null);
+                  }}
+                >
+                  {importSheets.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : null}
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <button
+                className="btn btn-ghost"
+                type="button"
+                disabled={!importFile || importBusy}
+                onClick={onPreviewImport}
+              >
+                {importBusy ? "קורא..." : "תצוגה מקדימה"}
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={!importFile || importBusy}
+                onClick={onCommitImport}
+              >
+                ייבא לכוח אדם
+              </button>
+            </div>
+          </div>
+          {importPreview ? (
+            <div style={{ marginTop: "1rem" }}>
+              <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+                גיליון: <strong>{importPreview.sheet_name}</strong>
+                {" · "}
+                חדשים: {importPreview.create_count}
+                {" · "}
+                עדכון: {importPreview.update_count}
+                {" · "}
+                עמודות:{" "}
+                {Object.entries(importPreview.column_mapping)
+                  .map(([k, v]) => `${k}←${v}`)
+                  .join(", ")}
+              </p>
+              <div style={{ maxHeight: 220, overflow: "auto" }}>
+                <table className="table">
+                  <thead>
+                    <tr>
+                      <th>פעולה</th>
+                      <th>שם</th>
+                      <th>מס׳ אישי</th>
+                      <th>טלפון</th>
+                      <th>תפקיד</th>
+                      <th>פק״לים</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {importPreview.rows.slice(0, 40).map((r, i) => (
+                      <tr key={`${r.full_name}-${i}`}>
+                        <td>{r.action === "create" ? "חדש" : "עדכון"}</td>
+                        <td>{r.full_name}</td>
+                        <td>{r.personal_number || "—"}</td>
+                        <td>{r.phone || "—"}</td>
+                        <td>{r.role_name || "—"}</td>
+                        <td>
+                          {r.qualification_names.length
+                            ? r.qualification_names.join(", ")
+                            : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                {importPreview.rows.length > 40 ? (
+                  <p style={{ color: "var(--ink-soft)" }}>
+                    מוצגים 40 מתוך {importPreview.rows.length}…
+                  </p>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <form className="form-grid" onSubmit={onSubmit} style={{ maxWidth: 560, marginTop: "1.25rem" }}>
+          <h2 style={{ margin: 0, fontSize: "1.05rem" }}>הוספה ידנית</h2>
           <label>
             תפקיד
             <select
@@ -402,6 +575,7 @@ export default function PeoplePage() {
           <thead>
             <tr>
               <th>שם</th>
+              <th>מס׳ אישי</th>
               <th>תפקיד</th>
               <th>פק״לים</th>
               <th>משימות מותרות</th>
@@ -413,7 +587,7 @@ export default function PeoplePage() {
           <tbody>
             {filteredPeople.length === 0 ? (
               <tr>
-                <td colSpan={7} style={{ color: "var(--ink-soft)" }}>
+                <td colSpan={8} style={{ color: "var(--ink-soft)" }}>
                   אין תוצאות לפי הסינון הנוכחי
                 </td>
               </tr>
@@ -422,6 +596,11 @@ export default function PeoplePage() {
                 <tr key={p.id}>
                   <td>
                     <strong>{p.full_name}</strong>
+                    {p.phone ? (
+                      <div style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
+                        {p.phone}
+                      </div>
+                    ) : null}
                     {(p.after_count_30d || 0) > 0 ? (
                       <div style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
                         פורגן באפטר · {p.after_count_30d}× ב־30 ימים
@@ -431,6 +610,7 @@ export default function PeoplePage() {
                       </div>
                     ) : null}
                   </td>
+                  <td>{p.personal_number || "—"}</td>
                   <td>{p.role_name}</td>
                   <td>
                     {p.qualification_ids

@@ -14,7 +14,14 @@ async function request<T>(
   if (token) {
     (headers as Record<string, string>)["Authorization"] = `Bearer ${token}`;
   }
-  const res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  let res: Response;
+  try {
+    res = await fetch(`${API_URL}${path}`, { ...options, headers });
+  } catch {
+    throw new Error(
+      "אין חיבור לשרת. ודאו שה־API רץ ופתחו את האתר ב־http://localhost:3000"
+    );
+  }
   if (!res.ok) {
     let detail = "שגיאה בשרת";
     try {
@@ -29,6 +36,32 @@ async function request<T>(
     throw new Error(detail);
   }
   if (res.status === 204) return undefined as T;
+  return res.json();
+}
+
+async function uploadForm<T>(
+  path: string,
+  form: FormData,
+  token: string
+): Promise<T> {
+  const res = await fetch(`${API_URL}${path}`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: form,
+  });
+  if (!res.ok) {
+    let detail = "שגיאה בשרת";
+    try {
+      const data = await res.json();
+      detail = data.detail || detail;
+      if (Array.isArray(detail)) {
+        detail = detail.map((d: { msg?: string }) => d.msg || JSON.stringify(d)).join(", ");
+      }
+    } catch {
+      /* ignore */
+    }
+    throw new Error(detail);
+  }
   return res.json();
 }
 
@@ -50,6 +83,18 @@ export const api = {
     }),
   me: (token: string) => request<User>("/auth/me", {}, token),
   people: (token: string) => request<Person[]>("/people", {}, token),
+  previewPeopleImport: (token: string, file: File, sheet?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (sheet) form.append("sheet", sheet);
+    return uploadForm<PeopleImportPreview>("/people/import/preview", form, token);
+  },
+  commitPeopleImport: (token: string, file: File, sheet?: string) => {
+    const form = new FormData();
+    form.append("file", file);
+    if (sheet) form.append("sheet", sheet);
+    return uploadForm<PeopleImportResult>("/people/import", form, token);
+  },
   createPerson: (token: string, body: object) =>
     request<Person>("/people", { method: "POST", body: JSON.stringify(body) }, token),
   updatePerson: (token: string, id: number, body: object) =>
@@ -170,6 +215,8 @@ export type Person = {
   full_name: string;
   role_id: number;
   rank?: string | null;
+  personal_number?: string | null;
+  phone?: string | null;
   notes?: string | null;
   is_active: boolean;
   qualification_ids: number[];
@@ -177,6 +224,35 @@ export type Person = {
   role_name?: string | null;
   after_count_30d?: number;
   last_after_end?: string | null;
+};
+
+export type PeopleImportPreview = {
+  sheet_name: string;
+  sheet_options: string[];
+  column_mapping: Record<string, string>;
+  rows: {
+    full_name: string;
+    personal_number?: string | null;
+    phone?: string | null;
+    role_name?: string | null;
+    qualification_names: string[];
+    notes?: string | null;
+    action: string;
+    match_person_id?: number | null;
+    warnings: string[];
+  }[];
+  create_count: number;
+  update_count: number;
+  skip_count: number;
+};
+
+export type PeopleImportResult = {
+  created: number;
+  updated: number;
+  skipped: number;
+  qualifications_created: number;
+  sheet_name: string;
+  warnings: string[];
 };
 
 export type Role = {

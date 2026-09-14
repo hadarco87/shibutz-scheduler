@@ -98,6 +98,8 @@ class PersonCreate(BaseModel):
     full_name: str
     role_id: int
     rank: Optional[str] = None
+    personal_number: Optional[str] = None
+    phone: Optional[str] = None
     notes: Optional[str] = None
     qualification_ids: List[int] = Field(default_factory=list)
     allowed_mission_type_ids: List[int] = Field(default_factory=list)
@@ -107,6 +109,8 @@ class PersonUpdate(BaseModel):
     full_name: Optional[str] = None
     role_id: Optional[int] = None
     rank: Optional[str] = None
+    personal_number: Optional[str] = None
+    phone: Optional[str] = None
     notes: Optional[str] = None
     is_active: Optional[bool] = None
     qualification_ids: Optional[List[int]] = None
@@ -119,6 +123,8 @@ class PersonOut(ORMModel):
     full_name: str
     role_id: int
     rank: Optional[str]
+    personal_number: Optional[str] = None
+    phone: Optional[str] = None
     notes: Optional[str]
     is_active: bool
     qualification_ids: List[int] = Field(default_factory=list)
@@ -126,6 +132,37 @@ class PersonOut(ORMModel):
     role_name: Optional[str] = None
     after_count_30d: int = 0
     last_after_end: Optional[datetime] = None
+
+
+class PeopleImportRowOut(BaseModel):
+    full_name: str
+    personal_number: Optional[str] = None
+    phone: Optional[str] = None
+    role_name: Optional[str] = None
+    qualification_names: List[str] = Field(default_factory=list)
+    notes: Optional[str] = None
+    action: str  # create | update | skip
+    match_person_id: Optional[int] = None
+    warnings: List[str] = Field(default_factory=list)
+
+
+class PeopleImportPreviewOut(BaseModel):
+    sheet_name: str
+    sheet_options: List[str] = Field(default_factory=list)
+    column_mapping: dict
+    rows: List[PeopleImportRowOut]
+    create_count: int = 0
+    update_count: int = 0
+    skip_count: int = 0
+
+
+class PeopleImportResultOut(BaseModel):
+    created: int = 0
+    updated: int = 0
+    skipped: int = 0
+    qualifications_created: int = 0
+    sheet_name: str
+    warnings: List[str] = Field(default_factory=list)
 
 
 # Mission types

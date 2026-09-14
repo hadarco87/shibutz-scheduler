@@ -24,7 +24,7 @@ services:
       SEED_DEMO: "false"
       SECRET_KEY: change-me-to-a-long-random-string
       DATABASE_URL: postgresql+psycopg://shibutz:shibutz@db:5432/shibutz
-      CORS_ORIGINS: http://localhost:3000
+      CORS_ORIGINS: http://localhost:3000,http://127.0.0.1:3000
     depends_on:
       db:
         condition: service_healthy

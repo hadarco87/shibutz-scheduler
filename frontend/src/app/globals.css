@@ -60,18 +60,25 @@ textarea {
   grid-template-rows: auto 1fr;
 }
 
+.app-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  background: rgba(255, 252, 245, 0.92);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--line);
+}
+
 .topbar {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 1rem;
-  padding: 0.9rem 1.25rem;
+  padding: 0.75rem 1.25rem;
   border-bottom: 1px solid var(--line);
-  background: rgba(255, 252, 245, 0.75);
-  backdrop-filter: blur(10px);
-  position: sticky;
-  top: 0;
-  z-index: 20;
+  background: transparent;
+  position: static;
+  backdrop-filter: none;
 }
 
 .brand {
@@ -572,41 +579,71 @@ textarea {
   color: var(--ink-soft);
 }
 
+.import-box {
+  padding: 1rem 1.1rem;
+  border-radius: 14px;
+  border: 1px dashed var(--line);
+  background: rgba(63, 90, 50, 0.04);
+  margin-bottom: 0.5rem;
+}
+
 .pilot-banner {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 0.75rem 1rem;
-  margin: 0 1rem;
-  padding: 0.75rem 1rem;
-  border-radius: 14px;
-  border: 1px solid var(--line);
-  background: rgba(63, 90, 50, 0.08);
+  gap: 0.75rem;
+  min-height: 2.25rem;
+  height: 2.25rem;
+  margin: 0;
+  padding: 0 1.25rem;
+  border: 0;
+  border-radius: 0;
+  background: rgba(63, 90, 50, 0.07);
+  overflow: hidden;
 }
 
-.pilot-banner-text {
+.pilot-banner-line {
   display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  min-width: min(100%, 280px);
-}
-
-.pilot-banner-text strong {
-  color: var(--olive-deep);
-  font-size: 0.92rem;
-}
-
-.pilot-banner-text span {
+  align-items: center;
+  gap: 0.4rem;
+  margin: 0;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 0.82rem;
   color: var(--ink-soft);
-  font-size: 0.85rem;
-  line-height: 1.4;
+  line-height: 1;
+}
+
+.pilot-banner-line strong {
+  color: var(--olive-deep);
+  font-size: 0.82rem;
+  font-weight: 650;
+  flex-shrink: 0;
+}
+
+.pilot-banner-sep {
+  opacity: 0.55;
+  flex-shrink: 0;
+}
+
+.pilot-banner-line span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .pilot-banner-actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
+  align-items: center;
+  gap: 0.2rem;
+  flex-shrink: 0;
+}
+
+.pilot-banner-actions .btn {
+  padding: 0.2rem 0.55rem;
+  min-height: 0;
+  font-size: 0.78rem;
 }
 
 @media (max-width: 800px) {

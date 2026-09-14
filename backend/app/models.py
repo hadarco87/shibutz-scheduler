@@ -171,6 +171,10 @@ class Person(Base, TimestampMixin):
     full_name: Mapped[str] = mapped_column(String(200), nullable=False)
     role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
     rank: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    personal_number: Mapped[Optional[str]] = mapped_column(
+        String(64), nullable=True, index=True
+    )
+    phone: Mapped[Optional[str]] = mapped_column(String(40), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 

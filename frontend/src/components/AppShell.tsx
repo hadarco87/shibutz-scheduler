@@ -34,30 +34,32 @@ export function AppShell({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="app-shell">
-      <header className="topbar">
-        <div className="brand">
-          <strong>שיבוץ</strong>
-          <span>
-            {user.company_name ? `${user.company_name} · ` : ""}
-            {user.full_name}
-          </span>
-        </div>
-        <nav className="nav">
-          {links.map((l) => (
-            <Link
-              key={l.href}
-              href={l.href}
-              className={pathname === l.href ? "active" : undefined}
-            >
-              {l.label}
-            </Link>
-          ))}
-          <button className="btn btn-ghost btn-small" onClick={logout} type="button">
-            יציאה
-          </button>
-        </nav>
-      </header>
-      <PilotBanner />
+      <div className="app-chrome">
+        <header className="topbar">
+          <div className="brand">
+            <strong>שיבוץ</strong>
+            <span>
+              {user.company_name ? `${user.company_name} · ` : ""}
+              {user.full_name}
+            </span>
+          </div>
+          <nav className="nav">
+            {links.map((l) => (
+              <Link
+                key={l.href}
+                href={l.href}
+                className={pathname === l.href ? "active" : undefined}
+              >
+                {l.label}
+              </Link>
+            ))}
+            <button className="btn btn-ghost btn-small" onClick={logout} type="button">
+              יציאה
+            </button>
+          </nav>
+        </header>
+        <PilotBanner />
+      </div>
       <main className="main">{children}</main>
     </div>
   );

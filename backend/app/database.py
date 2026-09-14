@@ -32,8 +32,21 @@ class Base(DeclarativeBase):
 
 
 def ensure_schema() -> None:
-    """Add newly introduced columns/tables for existing SQLite DBs."""
+    """Add newly introduced columns/tables for existing DBs."""
+    from sqlalchemy import inspect
+
     Base.metadata.create_all(bind=engine)
+    insp = inspect(engine)
+    if "people" in insp.get_table_names():
+        people_cols = {c["name"] for c in insp.get_columns("people")}
+        with engine.begin() as conn:
+            if "personal_number" not in people_cols:
+                conn.execute(
+                    text("ALTER TABLE people ADD COLUMN personal_number VARCHAR(64)")
+                )
+            if "phone" not in people_cols:
+                conn.execute(text("ALTER TABLE people ADD COLUMN phone VARCHAR(40)"))
+
     if not settings.database_url.startswith("sqlite"):
         return
     with engine.begin() as conn:

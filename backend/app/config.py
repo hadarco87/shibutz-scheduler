@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 60 * 12
     algorithm: str = "HS256"
     database_url: str = "sqlite:///./shibutz.db"
-    cors_origins: str = "http://localhost:3000"
+    cors_origins: str = "http://localhost:3000,http://127.0.0.1:3000"
     min_rest_hours: float = 6.0
     default_admin_email: str = "admin@example.com"
     default_admin_password: str = "admin123"

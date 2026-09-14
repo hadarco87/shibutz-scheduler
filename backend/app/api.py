@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.orm import Session, joinedload
 
@@ -66,6 +66,9 @@ from app.schemas import (
     PersonCreate,
     PersonOut,
     PersonUpdate,
+    PeopleImportPreviewOut,
+    PeopleImportResultOut,
+    PeopleImportRowOut,
     QualificationCreate,
     QualificationOut,
     QualificationUpdate,
@@ -91,6 +94,7 @@ from app.schemas import (
 )
 from app.security import authenticate_user, create_access_token
 from app.services.bootstrap import bootstrap_company
+from app.services.excel_import import apply_people_import, parse_people_workbook
 from app.services.after import (
     after_count_map,
     build_after_preview,
@@ -133,6 +137,8 @@ def person_out(
         full_name=person.full_name,
         role_id=person.role_id,
         rank=person.rank,
+        personal_number=person.personal_number,
+        phone=person.phone,
         notes=person.notes,
         is_active=person.is_active,
         qualification_ids=[pq.qualification_id for pq in person.qualifications],
@@ -684,6 +690,71 @@ def list_people(db: Session = Depends(get_db), user: User = Depends(get_current_
     ]
 
 
+@router.post("/people/import/preview", response_model=PeopleImportPreviewOut)
+async def preview_people_import(
+    file: UploadFile = File(...),
+    sheet: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "הקובץ ריק")
+    name = (file.filename or "").lower()
+    if not (name.endswith(".xlsx") or name.endswith(".xlsm")):
+        raise HTTPException(400, "נא להעלות קובץ Excel ‏(.xlsx / .xlsm)")
+    try:
+        parsed = parse_people_workbook(raw, preferred_sheet=sheet or None)
+        rows, created, updated, skipped, _, _ = apply_people_import(
+            db, user.company_id, parsed, commit=False
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"לא ניתן לקרוא את הקובץ: {e}")
+    return PeopleImportPreviewOut(
+        sheet_name=parsed.sheet_name,
+        sheet_options=parsed.sheet_options,
+        column_mapping=parsed.column_mapping,
+        rows=[PeopleImportRowOut(**r) for r in rows],
+        create_count=created,
+        update_count=updated,
+        skip_count=skipped,
+    )
+
+
+@router.post("/people/import", response_model=PeopleImportResultOut)
+async def commit_people_import(
+    file: UploadFile = File(...),
+    sheet: Optional[str] = Form(None),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    raw = await file.read()
+    if not raw:
+        raise HTTPException(400, "הקובץ ריק")
+    name = (file.filename or "").lower()
+    if not (name.endswith(".xlsx") or name.endswith(".xlsm")):
+        raise HTTPException(400, "נא להעלות קובץ Excel ‏(.xlsx / .xlsm)")
+    try:
+        parsed = parse_people_workbook(raw, preferred_sheet=sheet or None)
+        _, created, updated, skipped, quals_created, warnings = apply_people_import(
+            db, user.company_id, parsed, commit=True
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    except Exception as e:
+        raise HTTPException(400, f"לא ניתן לייבא את הקובץ: {e}")
+    return PeopleImportResultOut(
+        created=created,
+        updated=updated,
+        skipped=skipped,
+        qualifications_created=quals_created,
+        sheet_name=parsed.sheet_name,
+        warnings=warnings,
+    )
+
+
 @router.post("/people", response_model=PersonOut)
 def create_person(
     body: PersonCreate,
@@ -695,6 +766,8 @@ def create_person(
         full_name=body.full_name,
         role_id=body.role_id,
         rank=body.rank,
+        personal_number=body.personal_number,
+        phone=body.phone,
         notes=body.notes,
     )
     db.add(person)
@@ -738,7 +811,15 @@ def update_person(
     )
     if not person:
         raise HTTPException(404, "חייל לא נמצא")
-    for field in ("full_name", "role_id", "rank", "notes", "is_active"):
+    for field in (
+        "full_name",
+        "role_id",
+        "rank",
+        "personal_number",
+        "phone",
+        "notes",
+        "is_active",
+    ):
         val = getattr(body, field)
         if val is not None:
             setattr(person, field, val)
