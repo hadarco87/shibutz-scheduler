@@ -33,6 +33,7 @@ from app.models import (
     SchedulingConstraint,
     User,
     WorkloadEvent,
+    WorkloadSnapshotEntry,
     KanimRule,
     KanimRuleKind,
 )
@@ -853,6 +854,57 @@ def update_person(
         .one()
     )
     return person_out(person)
+
+
+@router.delete("/people/{person_id}")
+def delete_person(
+    person_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    """Hard-delete a person and dependent records (assignments, workload, leave, etc.)."""
+    person = (
+        db.query(Person)
+        .filter(Person.id == person_id, Person.company_id == user.company_id)
+        .first()
+    )
+    if not person:
+        raise HTTPException(404, "אדם לא נמצא")
+
+    db.query(Assignment).filter(Assignment.person_id == person.id).delete(
+        synchronize_session=False
+    )
+    db.query(WorkloadEvent).filter(WorkloadEvent.person_id == person.id).delete(
+        synchronize_session=False
+    )
+    db.query(WorkloadSnapshotEntry).filter(
+        WorkloadSnapshotEntry.person_id == person.id
+    ).delete(synchronize_session=False)
+    db.query(AfterDraft).filter(AfterDraft.person_id == person.id).delete(
+        synchronize_session=False
+    )
+    db.query(AfterGrant).filter(AfterGrant.person_id == person.id).delete(
+        synchronize_session=False
+    )
+    db.query(PersonQualification).filter(
+        PersonQualification.person_id == person.id
+    ).delete(synchronize_session=False)
+    db.query(PersonAllowedMissionType).filter(
+        PersonAllowedMissionType.person_id == person.id
+    ).delete(synchronize_session=False)
+    db.query(LeavePeriod).filter(LeavePeriod.person_id == person.id).delete(
+        synchronize_session=False
+    )
+    db.query(Restriction).filter(Restriction.person_id == person.id).delete(
+        synchronize_session=False
+    )
+    db.query(RecurringRestriction).filter(
+        RecurringRestriction.person_id == person.id
+    ).delete(synchronize_session=False)
+
+    db.delete(person)
+    db.commit()
+    return {"ok": True}
 
 
 # ---------- leave / restrictions ----------

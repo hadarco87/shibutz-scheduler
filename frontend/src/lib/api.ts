@@ -99,6 +99,8 @@ export const api = {
     request<Person>("/people", { method: "POST", body: JSON.stringify(body) }, token),
   updatePerson: (token: string, id: number, body: object) =>
     request<Person>(`/people/${id}`, { method: "PUT", body: JSON.stringify(body) }, token),
+  deletePerson: (token: string, id: number) =>
+    request(`/people/${id}`, { method: "DELETE" }, token),
   roles: (token: string) => request<Role[]>("/roles", {}, token),
   createRole: (token: string, body: object) =>
     request<Role>("/roles", { method: "POST", body: JSON.stringify(body) }, token),

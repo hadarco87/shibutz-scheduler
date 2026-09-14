@@ -79,6 +79,7 @@ export default function PeoplePage() {
     ""
   );
   const [filterAfter, setFilterAfter] = useState<"" | "none" | "some">("");
+  const [showSuspended, setShowSuspended] = useState(false);
   const [importFile, setImportFile] = useState<File | null>(null);
   const [importSheet, setImportSheet] = useState("");
   const [importSheets, setImportSheets] = useState<string[]>([]);
@@ -135,6 +136,7 @@ export default function PeoplePage() {
   const filteredPeople = useMemo(() => {
     const q = filterName.trim().toLowerCase();
     return people.filter((p) => {
+      if (!showSuspended && !p.is_active) return false;
       if (q) {
         const hay = [
           p.full_name,
@@ -162,14 +164,28 @@ export default function PeoplePage() {
       if (filterAfter === "some" && afterCount === 0) return false;
       return true;
     });
-  }, [people, filterName, filterRoleId, filterQualId, filterMission, filterAfter]);
+  }, [
+    people,
+    filterName,
+    filterRoleId,
+    filterQualId,
+    filterMission,
+    filterAfter,
+    showSuspended,
+  ]);
+
+  const suspendedCount = useMemo(
+    () => people.filter((p) => !p.is_active).length,
+    [people]
+  );
 
   const filtersActive =
     !!filterName.trim() ||
     filterRoleId !== "" ||
     filterQualId !== "" ||
     filterMission !== "" ||
-    filterAfter !== "";
+    filterAfter !== "" ||
+    showSuspended;
 
   function clearFilters() {
     setFilterName("");
@@ -177,6 +193,7 @@ export default function PeoplePage() {
     setFilterQualId("");
     setFilterMission("");
     setFilterAfter("");
+    setShowSuspended(false);
   }
 
   function splitFullName(full: string): { first: string; last: string } {
@@ -211,6 +228,49 @@ export default function PeoplePage() {
     setRoleId(p.role_id);
     setSelectedQuals([...p.qualification_ids]);
     setAllowedTypes([...(p.allowed_mission_type_ids || [])]);
+  }
+
+  async function toggleSuspend(p: Person) {
+    if (!token) return;
+    const nextActive = !p.is_active;
+    const ok = window.confirm(
+      nextActive
+        ? `להפעיל מחדש את ${p.full_name}? יוכל להיכנס שוב לשיבוץ.`
+        : `להשהות את ${p.full_name}?\n\nמושעה לא ייכנס לשיבוץ חדש. היסטוריה נשמרת.`
+    );
+    if (!ok) return;
+    setError("");
+    try {
+      await api.updatePerson(token, p.id, { is_active: nextActive });
+      if (editingId === p.id && !nextActive) resetForm();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "שגיאה בהשהייה");
+    }
+  }
+
+  async function deletePerson(p: Person) {
+    if (!token) return;
+    const ok = window.confirm(
+      `מחיקה לצמיתות של ${p.full_name}\n\n` +
+        `אזהרה חזקה: המחיקה בלתי הפיכה.\n` +
+        `יימחקו גם שיבוצים, עומס, חופשות ומגבלות הקשורים אליו.\n` +
+        `להשהייה (בלי למחוק היסטוריה) השתמשו ב«השהה».\n\n` +
+        `להמשיך במחיקה?`
+    );
+    if (!ok) return;
+    const ok2 = window.confirm(
+      `אישור אחרון: למחוק לצמיתות את ${p.full_name}? לא ניתן לשחזר.`
+    );
+    if (!ok2) return;
+    setError("");
+    try {
+      await api.deletePerson(token, p.id);
+      if (editingId === p.id) resetForm();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "שגיאה במחיקה");
+    }
   }
 
   async function onSubmit(e: FormEvent) {
@@ -709,9 +769,28 @@ export default function PeoplePage() {
             <option value="none">ללא</option>
             <option value="some">קיבלו</option>
           </select>
+          <label
+            className={`filter-toggle${showSuspended ? " is-active" : ""}`}
+            title={
+              suspendedCount
+                ? `${suspendedCount} מושעים`
+                : "אין מושעים כרגע"
+            }
+          >
+            <input
+              type="checkbox"
+              checked={showSuspended}
+              onChange={(e) => setShowSuspended(e.target.checked)}
+            />
+            הצג מושעים
+            {suspendedCount > 0 ? ` (${suspendedCount})` : ""}
+          </label>
           <div className="filter-bar-meta">
             <span>
-              {filteredPeople.length}/{people.length}
+              {filteredPeople.length}/
+              {showSuspended
+                ? people.length
+                : people.length - suspendedCount}
             </span>
             {filtersActive ? (
               <button
@@ -747,9 +826,15 @@ export default function PeoplePage() {
               </tr>
             ) : (
               filteredPeople.map((p) => (
-                <tr key={p.id}>
+                <tr
+                  key={p.id}
+                  className={p.is_active ? undefined : "row-suspended"}
+                >
                   <td>
                     <strong>{p.full_name}</strong>
+                    {!p.is_active ? (
+                      <span className="status-pill status-suspended">מושעה</span>
+                    ) : null}
                     {p.phone ? (
                       <div style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
                         {p.phone}
@@ -783,13 +868,29 @@ export default function PeoplePage() {
                   <td>{p.after_count_30d || 0}</td>
                   <td>{renderAvailability(p.id)}</td>
                   <td>
-                    <button
-                      className="btn btn-ghost btn-small"
-                      type="button"
-                      onClick={() => startEdit(p)}
-                    >
-                      עריכה
-                    </button>
+                    <div className="row-actions">
+                      <button
+                        className="btn btn-ghost btn-small"
+                        type="button"
+                        onClick={() => startEdit(p)}
+                      >
+                        עריכה
+                      </button>
+                      <button
+                        className="btn btn-ghost btn-small"
+                        type="button"
+                        onClick={() => toggleSuspend(p)}
+                      >
+                        {p.is_active ? "השהה" : "הפעל"}
+                      </button>
+                      <button
+                        className="btn btn-danger-ghost btn-small"
+                        type="button"
+                        onClick={() => deletePerson(p)}
+                      >
+                        מחק
+                      </button>
+                    </div>
                   </td>
                 </tr>
               ))

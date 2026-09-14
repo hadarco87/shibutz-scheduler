@@ -476,6 +476,66 @@ textarea {
   white-space: nowrap;
 }
 
+.filter-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.filter-toggle.is-active {
+  border-color: var(--olive);
+  color: var(--ink);
+  background: rgba(63, 90, 50, 0.08);
+}
+
+.filter-toggle input {
+  margin: 0;
+}
+
+.row-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  justify-content: flex-end;
+}
+
+.btn-danger-ghost {
+  background: transparent;
+  color: #9b2c2c;
+  border: 1px solid rgba(155, 44, 44, 0.35);
+}
+
+.btn-danger-ghost:hover {
+  background: rgba(155, 44, 44, 0.08);
+}
+
+.row-suspended td {
+  opacity: 0.72;
+}
+
+.status-pill {
+  display: inline-block;
+  margin-inline-start: 0.4rem;
+  padding: 0.1rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.status-suspended {
+  background: rgba(155, 44, 44, 0.12);
+  color: #9b2c2c;
+}
+
 .table {
   width: 100%;
   border-collapse: collapse;
