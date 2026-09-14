@@ -144,6 +144,8 @@ export const api = {
   getSchedule: (token: string, id: number) => request<Schedule>(`/schedules/${id}`, {}, token),
   createSchedule: (token: string, body: object) =>
     request<Schedule>("/schedules", { method: "POST", body: JSON.stringify(body) }, token),
+  syncScheduleMissions: (token: string, id: number) =>
+    request<Schedule>(`/schedules/${id}/sync-missions`, { method: "POST" }, token),
   generate: (token: string, id: number) =>
     request<SchedulingResult>(`/schedules/${id}/generate`, { method: "POST" }, token),
   publish: (token: string, id: number) =>

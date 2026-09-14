@@ -125,10 +125,17 @@ export default function HomePage() {
     ]);
     setPeople(roster.filter((p) => p.is_active));
     setMissionTypes(types);
-    const draft =
+    let draft =
       schedules.find((s) => s.status === "draft") ||
       schedules[0] ||
       null;
+    if (draft && draft.status === "draft") {
+      try {
+        draft = await api.syncScheduleMissions(token, draft.id);
+      } catch {
+        /* keep loaded draft if sync fails */
+      }
+    }
     setSchedule(draft);
     if (draft && draft.status === "draft" && draft.assignments.length) {
       try {
@@ -737,7 +744,8 @@ export default function HomePage() {
           </p>
           {selectableTypes.length === 0 ? (
             <p style={{ color: "var(--ink-soft)" }}>
-              אין משימות מסומנות לשיבוץ. סמנו משימות בעמוד ההגדרות.
+              עדיין אין סוגי משימה פעילים. הוסיפו בהגדרות וסמנו «בשיבוץ» — הם
+              יופיעו כאן אוטומטית.
             </p>
           ) : (
             <div className="people-chips">

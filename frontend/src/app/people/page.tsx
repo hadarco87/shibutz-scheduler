@@ -62,10 +62,15 @@ export default function PeoplePage() {
   const [error, setError] = useState("");
   const [editingId, setEditingId] = useState<number | null>(null);
 
-  const [fullName, setFullName] = useState("");
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [personalNumber, setPersonalNumber] = useState("");
+  const [phone, setPhone] = useState("");
   const [roleId, setRoleId] = useState<number | "">("");
   const [selectedQuals, setSelectedQuals] = useState<number[]>([]);
   const [allowedTypes, setAllowedTypes] = useState<number[]>([]);
+  const [newQualName, setNewQualName] = useState("");
+  const [qualBusy, setQualBusy] = useState(false);
 
   const [filterName, setFilterName] = useState("");
   const [filterRoleId, setFilterRoleId] = useState<number | "">("");
@@ -82,6 +87,7 @@ export default function PeoplePage() {
   );
   const [importBusy, setImportBusy] = useState(false);
   const [importMessage, setImportMessage] = useState("");
+  const [importOpen, setImportOpen] = useState(false);
 
   async function refresh() {
     if (!token) return;
@@ -129,7 +135,16 @@ export default function PeoplePage() {
   const filteredPeople = useMemo(() => {
     const q = filterName.trim().toLowerCase();
     return people.filter((p) => {
-      if (q && !p.full_name.toLowerCase().includes(q)) return false;
+      if (q) {
+        const hay = [
+          p.full_name,
+          p.personal_number || "",
+          p.phone || "",
+        ]
+          .join(" ")
+          .toLowerCase();
+        if (!hay.includes(q)) return false;
+      }
       if (filterRoleId !== "" && p.role_id !== filterRoleId) return false;
       if (filterQualId !== "" && !p.qualification_ids.includes(filterQualId)) {
         return false;
@@ -164,17 +179,35 @@ export default function PeoplePage() {
     setFilterAfter("");
   }
 
+  function splitFullName(full: string): { first: string; last: string } {
+    const parts = full.trim().split(/\s+/).filter(Boolean);
+    if (parts.length === 0) return { first: "", last: "" };
+    if (parts.length === 1) return { first: parts[0], last: "" };
+    return { first: parts[0], last: parts.slice(1).join(" ") };
+  }
+
+  function composeFullName(first: string, last: string) {
+    return [first.trim(), last.trim()].filter(Boolean).join(" ");
+  }
+
   function resetForm() {
     setEditingId(null);
-    setFullName("");
+    setFirstName("");
+    setLastName("");
+    setPersonalNumber("");
+    setPhone("");
     setSelectedQuals([]);
     setAllowedTypes([]);
     if (roles[0]) setRoleId(roles[0].id);
   }
 
   function startEdit(p: Person) {
+    const { first, last } = splitFullName(p.full_name);
     setEditingId(p.id);
-    setFullName(p.full_name);
+    setFirstName(first);
+    setLastName(last);
+    setPersonalNumber(p.personal_number || "");
+    setPhone(p.phone || "");
     setRoleId(p.role_id);
     setSelectedQuals([...p.qualification_ids]);
     setAllowedTypes([...(p.allowed_mission_type_ids || [])]);
@@ -183,11 +216,18 @@ export default function PeoplePage() {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     if (!token || !roleId) return;
+    const full_name = composeFullName(firstName, lastName);
+    if (!full_name) {
+      setError("נא למלא שם פרטי או שם משפחה");
+      return;
+    }
     setError("");
     try {
       const body = {
-        full_name: fullName,
+        full_name,
         role_id: Number(roleId),
+        personal_number: personalNumber.trim() || "",
+        phone: phone.trim() || "",
         qualification_ids: selectedQuals,
         allowed_mission_type_ids: allowedTypes,
       };
@@ -205,6 +245,39 @@ export default function PeoplePage() {
 
   function toggleId(list: number[], id: number, setter: (v: number[]) => void) {
     setter(list.includes(id) ? list.filter((x) => x !== id) : [...list, id]);
+  }
+
+  async function addQualificationInline(e?: FormEvent) {
+    e?.preventDefault();
+    if (!token) return;
+    const name = newQualName.trim();
+    if (!name) return;
+    const existing = quals.find(
+      (q) => q.name.trim().toLowerCase() === name.toLowerCase()
+    );
+    if (existing) {
+      if (!selectedQuals.includes(existing.id)) {
+        setSelectedQuals([...selectedQuals, existing.id]);
+      }
+      setNewQualName("");
+      return;
+    }
+    setQualBusy(true);
+    setError("");
+    try {
+      const created = await api.createQualification(token, { name });
+      setQuals((prev) =>
+        [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "he"))
+      );
+      setSelectedQuals((prev) =>
+        prev.includes(created.id) ? prev : [...prev, created.id]
+      );
+      setNewQualName("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "יצירת פק״ל נכשלה");
+    } finally {
+      setQualBusy(false);
+    }
   }
 
   async function onPreviewImport() {
@@ -248,6 +321,9 @@ export default function PeoplePage() {
       );
       setImportPreview(null);
       setImportFile(null);
+      setImportSheets([]);
+      setImportSheet("");
+      setImportOpen(false);
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "ייבוא נכשל");
@@ -304,21 +380,24 @@ export default function PeoplePage() {
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {importMessage ? (
-          <div className="alert" style={{ marginBottom: "1rem" }}>
+          <div className="alert" style={{ marginBottom: "0.75rem" }}>
             {importMessage}
           </div>
         ) : null}
 
-        <div className="import-box">
-          <h2 style={{ marginTop: 0, fontSize: "1.05rem" }}>ייבוא מאקסל</h2>
-          <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
-            העלו .xlsx / .xlsm (למשל לוח יציאות). המערכת מזהה אוטומטית עמודות כמו
-            שם, מספר אישי, טלפון, פק״ל, מחלקה וכיתה.
-          </p>
-          <div className="form-grid" style={{ maxWidth: 560 }}>
-            <label>
-              קובץ
+        <details
+          className="import-details"
+          open={importOpen}
+          onToggle={(e) => setImportOpen((e.target as HTMLDetailsElement).open)}
+        >
+          <summary className="import-summary">
+            <span>ייבוא מאקסל</span>
+            <span className="import-summary-hint">.xlsx / .xlsm · אופציונלי</span>
+          </summary>
+          <div className="import-panel">
+            <div className="import-row">
               <input
+                className="import-file"
                 type="file"
                 accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel.sheet.macroEnabled.12"
                 onChange={(e) => {
@@ -328,18 +407,19 @@ export default function PeoplePage() {
                   setImportSheets([]);
                   setImportSheet("");
                   setImportMessage("");
+                  if (f) setImportOpen(true);
                 }}
+                aria-label="קובץ אקסל"
               />
-            </label>
-            {importSheets.length ? (
-              <label>
-                גיליון
+              {importSheets.length ? (
                 <select
+                  className="import-sheet"
                   value={importSheet}
                   onChange={(e) => {
                     setImportSheet(e.target.value);
                     setImportPreview(null);
                   }}
+                  aria-label="גיליון"
                 >
                   {importSheets.map((s) => (
                     <option key={s} value={s}>
@@ -347,82 +427,126 @@ export default function PeoplePage() {
                     </option>
                   ))}
                 </select>
-              </label>
-            ) : null}
-            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              ) : null}
               <button
-                className="btn btn-ghost"
+                className="btn btn-ghost btn-small"
                 type="button"
                 disabled={!importFile || importBusy}
                 onClick={onPreviewImport}
               >
-                {importBusy ? "קורא..." : "תצוגה מקדימה"}
+                {importBusy ? "…" : "תצוגה"}
               </button>
               <button
-                className="btn btn-primary"
+                className="btn btn-primary btn-small"
                 type="button"
                 disabled={!importFile || importBusy}
                 onClick={onCommitImport}
               >
-                ייבא לכוח אדם
+                ייבא
               </button>
             </div>
-          </div>
-          {importPreview ? (
-            <div style={{ marginTop: "1rem" }}>
-              <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
-                גיליון: <strong>{importPreview.sheet_name}</strong>
-                {" · "}
-                חדשים: {importPreview.create_count}
-                {" · "}
-                עדכון: {importPreview.update_count}
-                {" · "}
-                עמודות:{" "}
-                {Object.entries(importPreview.column_mapping)
-                  .map(([k, v]) => `${k}←${v}`)
-                  .join(", ")}
-              </p>
-              <div style={{ maxHeight: 220, overflow: "auto" }}>
-                <table className="table">
-                  <thead>
-                    <tr>
-                      <th>פעולה</th>
-                      <th>שם</th>
-                      <th>מס׳ אישי</th>
-                      <th>טלפון</th>
-                      <th>תפקיד</th>
-                      <th>פק״לים</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {importPreview.rows.slice(0, 40).map((r, i) => (
-                      <tr key={`${r.full_name}-${i}`}>
-                        <td>{r.action === "create" ? "חדש" : "עדכון"}</td>
-                        <td>{r.full_name}</td>
-                        <td>{r.personal_number || "—"}</td>
-                        <td>{r.phone || "—"}</td>
-                        <td>{r.role_name || "—"}</td>
-                        <td>
-                          {r.qualification_names.length
-                            ? r.qualification_names.join(", ")
-                            : "—"}
-                        </td>
+            {importPreview ? (
+              <div className="import-preview">
+                <p>
+                  <strong>{importPreview.sheet_name}</strong>
+                  {" · "}
+                  {importPreview.create_count} חדשים
+                  {" · "}
+                  {importPreview.update_count} עדכון
+                </p>
+                <div className="import-preview-scroll">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>פעולה</th>
+                        <th>שם</th>
+                        <th>מס׳ אישי</th>
+                        <th>טלפון</th>
+                        <th>תפקיד</th>
+                        <th>פק״לים</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-                {importPreview.rows.length > 40 ? (
-                  <p style={{ color: "var(--ink-soft)" }}>
-                    מוצגים 40 מתוך {importPreview.rows.length}…
-                  </p>
-                ) : null}
+                    </thead>
+                    <tbody>
+                      {importPreview.rows.slice(0, 25).map((r, i) => (
+                        <tr key={`${r.full_name}-${i}`}>
+                          <td>{r.action === "create" ? "חדש" : "עדכון"}</td>
+                          <td>{r.full_name}</td>
+                          <td>{r.personal_number || "—"}</td>
+                          <td>{r.phone || "—"}</td>
+                          <td>{r.role_name || "—"}</td>
+                          <td>
+                            {r.qualification_names.length
+                              ? r.qualification_names.join(", ")
+                              : "—"}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
-            </div>
-          ) : null}
-        </div>
+            ) : null}
+          </div>
+        </details>
 
-        <form className="form-grid" onSubmit={onSubmit} style={{ maxWidth: 560, marginTop: "1.25rem" }}>
-          <h2 style={{ margin: 0, fontSize: "1.05rem" }}>הוספה ידנית</h2>
+        <form className="form-grid person-form" onSubmit={onSubmit}>
+          <div className="person-form-head">
+            <h2 style={{ margin: 0, fontSize: "1.05rem" }}>
+              {editingId ? "עריכת חייל" : "הוספה ידנית"}
+            </h2>
+            {editingId ? (
+              <span className="person-form-editing">עריכה פעילה</span>
+            ) : null}
+          </div>
+
+          <div className="person-form-row">
+            <label>
+              שם פרטי
+              <input
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                autoComplete="given-name"
+                required={!lastName.trim()}
+                placeholder="ישראל"
+              />
+            </label>
+            <label>
+              שם משפחה
+              <input
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                autoComplete="family-name"
+                required={!firstName.trim()}
+                placeholder="ישראלי"
+              />
+            </label>
+          </div>
+
+          <div className="person-form-row">
+            <label>
+              מספר אישי
+              <span className="field-optional">רשות</span>
+              <input
+                value={personalNumber}
+                onChange={(e) => setPersonalNumber(e.target.value)}
+                inputMode="numeric"
+                autoComplete="off"
+                placeholder="לדוגמה 1234567"
+              />
+            </label>
+            <label>
+              טלפון
+              <span className="field-optional">רשות</span>
+              <input
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                type="tel"
+                autoComplete="tel"
+                placeholder="050-0000000"
+              />
+            </label>
+          </div>
+
           <label>
             תפקיד
             <select
@@ -438,18 +562,48 @@ export default function PeoplePage() {
             </select>
           </label>
           <div>
-            <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>פק״לים</div>
+            <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>
+              פק״לים
+            </div>
             <div className="people-chips">
-              {quals.map((q) => (
-                <button
-                  key={q.id}
-                  type="button"
-                  className={`chip ${selectedQuals.includes(q.id) ? "manual" : ""}`}
-                  onClick={() => toggleId(selectedQuals, q.id, setSelectedQuals)}
-                >
-                  {q.name}
-                </button>
-              ))}
+              {quals.length === 0 ? (
+                <span style={{ color: "var(--ink-soft)", fontSize: "0.88rem" }}>
+                  עדיין אין פק״לים — הוסיפו למטה
+                </span>
+              ) : (
+                quals.map((q) => (
+                  <button
+                    key={q.id}
+                    type="button"
+                    className={`chip ${selectedQuals.includes(q.id) ? "manual" : ""}`}
+                    onClick={() => toggleId(selectedQuals, q.id, setSelectedQuals)}
+                  >
+                    {q.name}
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="qual-add-row">
+              <input
+                value={newQualName}
+                onChange={(e) => setNewQualName(e.target.value)}
+                placeholder="פק״ל חדש (לדוגמה: חובש)"
+                aria-label="שם פק״ל חדש"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void addQualificationInline();
+                  }
+                }}
+              />
+              <button
+                className="btn btn-ghost btn-small"
+                type="button"
+                disabled={qualBusy || !newQualName.trim()}
+                onClick={() => void addQualificationInline()}
+              >
+                {qualBusy ? "…" : "הוסף פק״ל"}
+              </button>
             </div>
           </div>
           <div>
@@ -488,8 +642,8 @@ export default function PeoplePage() {
             className="filter-bar-search"
             value={filterName}
             onChange={(e) => setFilterName(e.target.value)}
-            placeholder="חיפוש שם…"
-            aria-label="חיפוש לפי שם"
+            placeholder="חיפוש שם / מס׳ אישי / טלפון…"
+            aria-label="חיפוש לפי שם, מספר אישי או טלפון"
           />
           <select
             className={filterRoleId !== "" ? "is-active" : undefined}

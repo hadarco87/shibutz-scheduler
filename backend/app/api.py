@@ -103,10 +103,12 @@ from app.services.after import (
 from app.services.scheduling import (
     current_workload_map,
     generate_schedule,
+    instantiate_active_mission_types,
     instantiate_recurring_missions,
     list_replacement_candidates,
     publish_schedule,
     replace_assignment,
+    sync_mission_type_to_drafts,
 )
 from app.services.validation import validate_schedule
 
@@ -765,10 +767,10 @@ def create_person(
         company_id=user.company_id,
         full_name=body.full_name,
         role_id=body.role_id,
-        rank=body.rank,
-        personal_number=body.personal_number,
-        phone=body.phone,
-        notes=body.notes,
+        rank=(body.rank or "").strip() or None,
+        personal_number=(body.personal_number or "").strip() or None,
+        phone=(body.phone or "").strip() or None,
+        notes=(body.notes or "").strip() or None,
     )
     db.add(person)
     db.flush()
@@ -811,6 +813,7 @@ def update_person(
     )
     if not person:
         raise HTTPException(404, "חייל לא נמצא")
+    data = body.model_dump(exclude_unset=True)
     for field in (
         "full_name",
         "role_id",
@@ -820,14 +823,17 @@ def update_person(
         "notes",
         "is_active",
     ):
-        val = getattr(body, field)
-        if val is not None:
-            setattr(person, field, val)
-    if body.qualification_ids is not None:
+        if field not in data:
+            continue
+        val = data[field]
+        if field in ("personal_number", "phone", "notes", "rank") and val == "":
+            val = None
+        setattr(person, field, val)
+    if "qualification_ids" in data and body.qualification_ids is not None:
         db.query(PersonQualification).filter(PersonQualification.person_id == person.id).delete()
         for qid in body.qualification_ids:
             db.add(PersonQualification(person_id=person.id, qualification_id=qid))
-    if body.allowed_mission_type_ids is not None:
+    if "allowed_mission_type_ids" in data and body.allowed_mission_type_ids is not None:
         db.query(PersonAllowedMissionType).filter(
             PersonAllowedMissionType.person_id == person.id
         ).delete()
@@ -1041,7 +1047,7 @@ def create_mission_type(
         data["recurring_start_hour"] = None
         if body.time_windows:
             _assert_time_windows(body.time_windows)
-    mt = MissionType(company_id=user.company_id, **data)
+    mt = MissionType(company_id=user.company_id, is_active=True, **data)
     db.add(mt)
     db.flush()
     for req in body.default_requirements:
@@ -1052,6 +1058,14 @@ def create_mission_type(
     else:
         _replace_time_windows(db, mt.id, body.time_windows)
         _replace_staffing_bands(db, mt.id, [])
+    db.flush()
+    mt = (
+        db.query(MissionType)
+        .options(*_mt_load_options())
+        .filter(MissionType.id == mt.id)
+        .one()
+    )
+    sync_mission_type_to_drafts(db, mt)
     db.commit()
     mt = (
         db.query(MissionType)
@@ -1140,6 +1154,14 @@ def update_mission_type(
         if body.time_windows is not None:
             _replace_time_windows(db, mt.id, body.time_windows)
         _replace_staffing_bands(db, mt.id, [])
+    db.flush()
+    mt = (
+        db.query(MissionType)
+        .options(*_mt_load_options())
+        .filter(MissionType.id == mt.id)
+        .one()
+    )
+    sync_mission_type_to_drafts(db, mt)
     db.commit()
     mt = (
         db.query(MissionType)
@@ -1468,7 +1490,7 @@ def create_schedule(
     db.add(schedule)
     db.flush()
     if body.instantiate_recurring:
-        instantiate_recurring_missions(db, schedule)
+        instantiate_active_mission_types(db, schedule)
     # Attach orphan ad-hoc missions in window
     orphans = (
         db.query(Mission)
@@ -1482,6 +1504,27 @@ def create_schedule(
     )
     for m in orphans:
         m.schedule_id = schedule.id
+    db.commit()
+    return schedule_out(db, schedule)
+
+
+@router.post("/schedules/{schedule_id}/sync-missions", response_model=ScheduleOut)
+def sync_schedule_missions(
+    schedule_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    """Pull any missing active mission types into this draft schedule."""
+    schedule = (
+        db.query(Schedule)
+        .filter(Schedule.id == schedule_id, Schedule.company_id == user.company_id)
+        .first()
+    )
+    if not schedule:
+        raise HTTPException(404, "שיבוץ לא נמצא")
+    if schedule.status != ScheduleStatus.DRAFT:
+        raise HTTPException(400, "ניתן לסנכרן משימות רק בטיוטה")
+    instantiate_active_mission_types(db, schedule)
     db.commit()
     return schedule_out(db, schedule)
 

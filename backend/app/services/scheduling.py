@@ -39,6 +39,7 @@ from app.services.validation import (
     validate_assignment,
     validate_schedule,
 )
+from app.services.windows import shifts_for_windows_in_range
 from app.services.workload import compute_workload_weight, mission_duration_hours
 
 
@@ -91,85 +92,209 @@ def instantiate_recurring_missions(
         .all()
     )
     created: List[Mission] = []
+    for t in templates:
+        if _schedule_has_mission_type(db, schedule.id, t.id):
+            continue
+        created.extend(_instantiate_routine_type(db, schedule, t))
+    db.flush()
+    return created
+
+
+def instantiate_window_missions(
+    db: Session,
+    schedule: Schedule,
+) -> List[Mission]:
+    """Create one-off missions from active non-routine types with time windows."""
+    templates = (
+        db.query(MissionType)
+        .options(
+            joinedload(MissionType.default_requirements),
+            joinedload(MissionType.time_windows),
+        )
+        .filter(
+            MissionType.company_id == schedule.company_id,
+            MissionType.is_active.is_(True),
+            MissionType.is_recurring_template.is_(False),
+        )
+        .all()
+    )
+    created: List[Mission] = []
+    for t in templates:
+        if _schedule_has_mission_type(db, schedule.id, t.id):
+            continue
+        created.extend(_instantiate_window_type(db, schedule, t))
+    db.flush()
+    return created
+
+
+def instantiate_active_mission_types(
+    db: Session,
+    schedule: Schedule,
+) -> List[Mission]:
+    """Instantiate all active configured mission types into a draft schedule."""
+    created = instantiate_recurring_missions(db, schedule)
+    created.extend(instantiate_window_missions(db, schedule))
+    return created
+
+
+def sync_mission_type_to_drafts(db: Session, mt: MissionType) -> int:
+    """Add a newly configured active type into existing draft schedules (no dupes)."""
+    if not mt.is_active:
+        return 0
+    drafts = (
+        db.query(Schedule)
+        .filter(
+            Schedule.company_id == mt.company_id,
+            Schedule.status == ScheduleStatus.DRAFT,
+        )
+        .all()
+    )
+    total = 0
+    for schedule in drafts:
+        if _schedule_has_mission_type(db, schedule.id, mt.id):
+            continue
+        if mt.is_recurring_template:
+            created = _instantiate_routine_type(db, schedule, mt)
+        else:
+            created = _instantiate_window_type(db, schedule, mt)
+        total += len(created)
+    if total:
+        db.flush()
+    return total
+
+
+def _schedule_has_mission_type(db: Session, schedule_id: int, mission_type_id: int) -> bool:
+    return (
+        db.query(Mission.id)
+        .filter(
+            Mission.schedule_id == schedule_id,
+            Mission.mission_type_id == mission_type_id,
+        )
+        .first()
+        is not None
+    )
+
+
+def _staffing_from_type(t: MissionType, start: datetime):
+    default_reqs = [
+        StaffingReq(r.role_id, r.qualification_id, r.count)
+        for r in (t.default_requirements or [])
+    ]
+    bands = []
+    for b in sorted(
+        getattr(t, "staffing_bands", None) or [],
+        key=lambda x: (x.sort_order, x.id),
+    ):
+        bands.append(
+            (
+                b.start_minute,
+                b.end_minute,
+                b.personnel_count,
+                b.label,
+                [
+                    StaffingReq(r.role_id, r.qualification_id, r.count)
+                    for r in (b.requirements or [])
+                ],
+            )
+        )
+    return resolve_staffing_for_start(
+        start,
+        default_personnel=t.default_personnel_count,
+        default_requirements=default_reqs,
+        bands=bands,
+    )
+
+
+def _add_mission_with_staffing(
+    db: Session,
+    schedule: Schedule,
+    t: MissionType,
+    start: datetime,
+    end: datetime,
+    *,
+    is_adhoc: bool,
+) -> Mission:
+    staffing = _staffing_from_type(t, start)
+    mission = Mission(
+        company_id=schedule.company_id,
+        mission_type_id=t.id,
+        name=t.name,
+        start_at=start,
+        end_at=end,
+        difficulty_weight=t.difficulty_weight,
+        personnel_count=staffing.personnel_count,
+        is_adhoc=is_adhoc,
+        schedule_id=schedule.id,
+    )
+    db.add(mission)
+    db.flush()
+    if staffing.requirements:
+        for req in staffing.requirements:
+            db.add(
+                MissionRequirement(
+                    mission_id=mission.id,
+                    role_id=req.role_id,
+                    qualification_id=req.qualification_id,
+                    count=req.count,
+                )
+            )
+    else:
+        for _ in range(staffing.personnel_count):
+            db.add(
+                MissionRequirement(
+                    mission_id=mission.id, count=1, label="חייל"
+                )
+            )
+    return mission
+
+
+def _instantiate_routine_type(
+    db: Session, schedule: Schedule, t: MissionType
+) -> List[Mission]:
+    duration = float(t.default_duration_hours or 0)
+    if duration <= 0 or t.recurring_start_hour is None:
+        return []
+    policy = getattr(t, "routine_remainder_policy", None) or "include_short"
     ws = schedule.window_start
     we = schedule.window_end
     day = ws.replace(hour=0, minute=0, second=0, microsecond=0)
     last_day = (we - timedelta(microseconds=1)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
-
-    for t in templates:
-        duration = float(t.default_duration_hours or 0)
-        if duration <= 0 or t.recurring_start_hour is None:
-            continue
-        policy = getattr(t, "routine_remainder_policy", None) or "include_short"
-        default_reqs = [
-            StaffingReq(r.role_id, r.qualification_id, r.count)
-            for r in t.default_requirements
-        ]
-        bands = []
-        for b in sorted(
-            getattr(t, "staffing_bands", None) or [],
-            key=lambda x: (x.sort_order, x.id),
+    created: List[Mission] = []
+    d = day
+    while d <= last_day:
+        for start, end in shifts_for_calendar_day(
+            d, duration, int(t.recurring_start_hour), policy
         ):
-            bands.append(
-                (
-                    b.start_minute,
-                    b.end_minute,
-                    b.personnel_count,
-                    b.label,
-                    [
-                        StaffingReq(r.role_id, r.qualification_id, r.count)
-                        for r in (b.requirements or [])
-                    ],
+            if not (ws <= start < we):
+                continue
+            created.append(
+                _add_mission_with_staffing(
+                    db, schedule, t, start, end, is_adhoc=False
                 )
             )
-        d = day
-        while d <= last_day:
-            for start, end in shifts_for_calendar_day(
-                d, duration, int(t.recurring_start_hour), policy
-            ):
-                if not (ws <= start < we):
-                    continue
-                staffing = resolve_staffing_for_start(
-                    start,
-                    default_personnel=t.default_personnel_count,
-                    default_requirements=default_reqs,
-                    bands=bands,
-                )
-                mission = Mission(
-                    company_id=schedule.company_id,
-                    mission_type_id=t.id,
-                    name=t.name,
-                    start_at=start,
-                    end_at=end,
-                    difficulty_weight=t.difficulty_weight,
-                    personnel_count=staffing.personnel_count,
-                    is_adhoc=False,
-                    schedule_id=schedule.id,
-                )
-                db.add(mission)
-                db.flush()
-                if staffing.requirements:
-                    for req in staffing.requirements:
-                        db.add(
-                            MissionRequirement(
-                                mission_id=mission.id,
-                                role_id=req.role_id,
-                                qualification_id=req.qualification_id,
-                                count=req.count,
-                            )
-                        )
-                else:
-                    for _ in range(staffing.personnel_count):
-                        db.add(
-                            MissionRequirement(
-                                mission_id=mission.id, count=1, label="חייל"
-                            )
-                        )
-                created.append(mission)
-            d += timedelta(days=1)
-    db.flush()
+        d += timedelta(days=1)
+    return created
+
+
+def _instantiate_window_type(
+    db: Session, schedule: Schedule, t: MissionType
+) -> List[Mission]:
+    windows = sorted(
+        getattr(t, "time_windows", None) or [],
+        key=lambda w: (w.sort_order, w.id),
+    )
+    if not windows:
+        return []
+    pairs = [(w.start_minute, w.end_minute) for w in windows]
+    created: List[Mission] = []
+    for start, end in shifts_for_windows_in_range(
+        schedule.window_start, schedule.window_end, pairs
+    ):
+        created.append(
+            _add_mission_with_staffing(db, schedule, t, start, end, is_adhoc=False)
+        )
     return created
 
 
