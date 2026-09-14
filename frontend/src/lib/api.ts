@@ -16,7 +16,11 @@ async function request<T>(
   }
   let res: Response;
   try {
-    res = await fetch(`${API_URL}${path}`, { ...options, headers });
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers,
+      cache: "no-store",
+    });
   } catch {
     throw new Error(
       "אין חיבור לשרת. ודאו שה־API רץ ופתחו את האתר ב־http://localhost:3000"
@@ -36,7 +40,9 @@ async function request<T>(
     throw new Error(detail);
   }
   if (res.status === 204) return undefined as T;
-  return res.json();
+  const text = await res.text();
+  if (!text) return undefined as T;
+  return JSON.parse(text) as T;
 }
 
 async function uploadForm<T>(

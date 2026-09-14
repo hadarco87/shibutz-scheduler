@@ -3,6 +3,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.security import OAuth2PasswordRequestForm
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, joinedload
 
 from app.database import get_db
@@ -903,7 +904,14 @@ def delete_person(
     ).delete(synchronize_session=False)
 
     db.delete(person)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409,
+            "לא ניתן למחוק — יש רשומות מקושרות שלא נוקו. נסו שוב או השתמשו בהשהייה.",
+        )
     return {"ok": True}
 
 

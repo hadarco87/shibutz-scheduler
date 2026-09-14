@@ -241,7 +241,8 @@ export default function PeoplePage() {
     if (!ok) return;
     setError("");
     try {
-      await api.updatePerson(token, p.id, { is_active: nextActive });
+      const updated = await api.updatePerson(token, p.id, { is_active: nextActive });
+      setPeople((prev) => prev.map((row) => (row.id === p.id ? { ...row, ...updated } : row)));
       if (editingId === p.id && !nextActive) resetForm();
       await refresh();
     } catch (err) {
@@ -266,8 +267,21 @@ export default function PeoplePage() {
     setError("");
     try {
       await api.deletePerson(token, p.id);
+      setPeople((prev) => prev.filter((row) => row.id !== p.id));
+      setLeave((prev) => prev.filter((row) => row.person_id !== p.id));
+      setRestrictions((prev) => prev.filter((row) => row.person_id !== p.id));
+      setRecurring((prev) => prev.filter((row) => row.person_id !== p.id));
       if (editingId === p.id) resetForm();
-      await refresh();
+      try {
+        await refresh();
+      } catch (refreshErr) {
+        // Person already removed locally; surface refresh issues without undoing UI.
+        setError(
+          refreshErr instanceof Error
+            ? refreshErr.message
+            : "נמחק, אך רענון הרשימה נכשל — רעננו את הדף"
+        );
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה במחיקה");
     }
@@ -803,6 +817,8 @@ export default function PeoplePage() {
             ) : null}
           </div>
         </div>
+
+        {error ? <div className="alert alert-danger">{error}</div> : null}
 
         <table className="table">
           <thead>
