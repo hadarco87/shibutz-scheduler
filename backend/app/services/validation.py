@@ -501,5 +501,9 @@ def validate_schedule(db: Session, schedule: Schedule) -> ValidationResult:
             )
         )
 
+    from app.services.policy_rules import evaluate_min_presence_rules
+
+    violations.extend(evaluate_min_presence_rules(db, schedule=schedule))
+
     ok = not any(v.severity == "hard" for v in violations)
     return ValidationResult(ok=ok, violations=violations)

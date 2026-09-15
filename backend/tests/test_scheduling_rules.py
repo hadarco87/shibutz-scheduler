@@ -245,3 +245,81 @@ def test_rule_allows_after_cooldown(db, company_data):
         missions_by_id={},
     )
     assert violations == []
+
+
+def test_min_presence_not_at_home(db, company_data):
+    from app.models import (
+        PersonQualification,
+        PresenceScope,
+        Qualification,
+        SchedulingRuleKind,
+        SchedulingRuleQualification,
+    )
+    from app.services.policy_rules import evaluate_min_presence_rules
+
+    company = company_data["company"]
+    person = company_data["person"]
+    medic_qual = Qualification(company_id=company.id, name="חובש")
+    db.add(medic_qual)
+    db.flush()
+    db.add(
+        PersonQualification(person_id=person.id, qualification_id=medic_qual.id)
+    )
+    other = Person(
+        company_id=company.id,
+        full_name="Soldier 2",
+        role_id=company_data["soldier"].id,
+        is_active=True,
+    )
+    db.add(other)
+    db.flush()
+    db.add(
+        PersonQualification(person_id=other.id, qualification_id=medic_qual.id)
+    )
+
+    rule = SchedulingRule(
+        company_id=company.id,
+        rule_kind=SchedulingRuleKind.MIN_PRESENCE,
+        min_count=1,
+        presence_scope=PresenceScope.NOT_AT_HOME,
+        severity=ConstraintSeverity.HARD,
+        applies_to_all_roles=True,
+        is_active=True,
+    )
+    db.add(rule)
+    db.flush()
+    db.add(
+        SchedulingRuleQualification(
+            rule_id=rule.id, qualification_id=medic_qual.id
+        )
+    )
+
+    schedule = Schedule(
+        company_id=company.id,
+        window_start=datetime(2026, 9, 18, 0, 0),
+        window_end=datetime(2026, 9, 19, 0, 0),
+        status=ScheduleStatus.DRAFT,
+    )
+    db.add(schedule)
+    db.flush()
+
+    assert evaluate_min_presence_rules(db, schedule=schedule) == []
+
+    bad = evaluate_min_presence_rules(
+        db,
+        schedule=schedule,
+        provisional_afters=[
+            (person.id, datetime(2026, 9, 18, 0, 0), datetime(2026, 9, 18, 8, 0)),
+            (other.id, datetime(2026, 9, 18, 0, 0), datetime(2026, 9, 18, 8, 0)),
+        ],
+    )
+    assert any(v.code == "min_presence" and v.severity == "hard" for v in bad)
+
+    fine = evaluate_min_presence_rules(
+        db,
+        schedule=schedule,
+        provisional_afters=[
+            (person.id, datetime(2026, 9, 18, 0, 0), datetime(2026, 9, 18, 8, 0)),
+        ],
+    )
+    assert fine == []

@@ -37,8 +37,11 @@ from app.models import (
     SchedulingConstraint,
     SchedulingRule,
     SchedulingRuleBlockedType,
+    SchedulingRuleQualification,
     SchedulingRuleRole,
     SchedulingRuleSourceType,
+    SchedulingRuleKind,
+    PresenceScope,
     User,
     UserRole,
     WorkloadEvent,
@@ -1922,10 +1925,14 @@ def scheduling_rule_out(rule: SchedulingRule) -> SchedulingRuleOut:
     source_rows = sorted(rule.source_types, key=lambda r: r.mission_type_id)
     blocked_rows = sorted(rule.blocked_types, key=lambda r: r.mission_type_id)
     role_rows = sorted(rule.roles, key=lambda r: r.role_id)
+    qual_rows = sorted(rule.qualifications, key=lambda r: r.qualification_id)
+    kind = getattr(rule, "rule_kind", None) or SchedulingRuleKind.TRANSITION
+    scope = getattr(rule, "presence_scope", None) or PresenceScope.NOT_AT_HOME
     return SchedulingRuleOut(
         id=rule.id,
         company_id=rule.company_id,
         name=rule.name,
+        rule_kind=kind,
         source_mission_type_ids=[r.mission_type_id for r in source_rows],
         blocked_mission_type_ids=[r.mission_type_id for r in blocked_rows],
         source_mission_type_names=[
@@ -1938,10 +1945,17 @@ def scheduling_rule_out(rule: SchedulingRule) -> SchedulingRuleOut:
         ],
         min_source_hours=rule.min_source_hours,
         cooldown_hours=rule.cooldown_hours,
+        min_count=getattr(rule, "min_count", 1) or 1,
+        presence_scope=scope,
         severity=rule.severity,
         applies_to_all_roles=rule.applies_to_all_roles,
         role_ids=[r.role_id for r in role_rows],
         role_names=[r.role.name if r.role else str(r.role_id) for r in role_rows],
+        qualification_ids=[r.qualification_id for r in qual_rows],
+        qualification_names=[
+            r.qualification.name if r.qualification else str(r.qualification_id)
+            for r in qual_rows
+        ],
         is_active=rule.is_active,
     )
 
@@ -1950,50 +1964,92 @@ def _set_rule_links(
     db: Session,
     rule: SchedulingRule,
     *,
+    kind: SchedulingRuleKind,
     source_ids: List[int],
     blocked_ids: List[int],
     role_ids: List[int],
+    qualification_ids: List[int],
     applies_to_all: bool,
     company_id: int,
+    presence_scope: PresenceScope,
 ) -> None:
-    types = {
-        t.id: t
-        for t in db.query(MissionType)
-        .filter(MissionType.company_id == company_id, MissionType.id.in_(source_ids + blocked_ids))
-        .all()
-    }
-    missing = [i for i in source_ids + blocked_ids if i not in types]
-    if missing:
-        raise HTTPException(400, "סוג משימה לא נמצא בכלל")
-    if not source_ids or not blocked_ids:
-        raise HTTPException(400, "יש לבחור לפחות סוג מקור אחד וסוג חסום אחד")
-
     rule.source_types.clear()
     rule.blocked_types.clear()
     rule.roles.clear()
+    rule.qualifications.clear()
     db.flush()
-    for mid in sorted(set(source_ids)):
-        rule.source_types.append(
-            SchedulingRuleSourceType(mission_type_id=mid)
-        )
-    for mid in sorted(set(blocked_ids)):
-        rule.blocked_types.append(
-            SchedulingRuleBlockedType(mission_type_id=mid)
-        )
-    if not applies_to_all:
-        if not role_ids:
-            raise HTTPException(400, "בחרו תפקידים או סמנו «כל כוח האדם»")
+
+    type_ids = list(source_ids) + list(blocked_ids)
+    if type_ids:
+        types = {
+            t.id: t
+            for t in db.query(MissionType)
+            .filter(MissionType.company_id == company_id, MissionType.id.in_(type_ids))
+            .all()
+        }
+        missing = [i for i in type_ids if i not in types]
+        if missing:
+            raise HTTPException(400, "סוג משימה לא נמצא בכלל")
+
+    if kind == SchedulingRuleKind.TRANSITION:
+        if not source_ids or not blocked_ids:
+            raise HTTPException(400, "יש לבחור לפחות סוג מקור אחד וסוג חסום אחד")
+        for mid in sorted(set(source_ids)):
+            rule.source_types.append(SchedulingRuleSourceType(mission_type_id=mid))
+        for mid in sorted(set(blocked_ids)):
+            rule.blocked_types.append(SchedulingRuleBlockedType(mission_type_id=mid))
+        if not applies_to_all:
+            if not role_ids:
+                raise HTTPException(400, "בחרו תפקידים או סמנו «כל כוח האדם»")
+            roles = {
+                r.id: r
+                for r in db.query(Role)
+                .filter(Role.company_id == company_id, Role.id.in_(role_ids))
+                .all()
+            }
+            if any(i not in roles for i in role_ids):
+                raise HTTPException(400, "תפקיד לא נמצא בכלל")
+            for rid in sorted(set(role_ids)):
+                rule.roles.append(SchedulingRuleRole(role_id=rid))
+        return
+
+    # min_presence
+    if not role_ids and not qualification_ids:
+        raise HTTPException(400, "בחרו לפחות תפקיד אחד או פק״ל אחד לנוכחות")
+    if presence_scope == PresenceScope.ON_MISSION_TYPES and not source_ids:
+        raise HTTPException(400, "בחרו סוגי משימה שנחשבים «במוצב»")
+    if role_ids:
         roles = {
             r.id: r
             for r in db.query(Role)
             .filter(Role.company_id == company_id, Role.id.in_(role_ids))
             .all()
         }
-        missing_roles = [i for i in role_ids if i not in roles]
-        if missing_roles:
+        if any(i not in roles for i in role_ids):
             raise HTTPException(400, "תפקיד לא נמצא בכלל")
         for rid in sorted(set(role_ids)):
             rule.roles.append(SchedulingRuleRole(role_id=rid))
+    if qualification_ids:
+        from app.models import Qualification
+
+        quals = {
+            q.id: q
+            for q in db.query(Qualification)
+            .filter(
+                Qualification.company_id == company_id,
+                Qualification.id.in_(qualification_ids),
+            )
+            .all()
+        }
+        if any(i not in quals for i in qualification_ids):
+            raise HTTPException(400, "פק״ל לא נמצא בכלל")
+        for qid in sorted(set(qualification_ids)):
+            rule.qualifications.append(
+                SchedulingRuleQualification(qualification_id=qid)
+            )
+    if presence_scope == PresenceScope.ON_MISSION_TYPES:
+        for mid in sorted(set(source_ids)):
+            rule.source_types.append(SchedulingRuleSourceType(mission_type_id=mid))
 
 
 @router.get("/scheduling-rules", response_model=List[SchedulingRuleOut])
@@ -2012,10 +2068,17 @@ def create_scheduling_rule(
     rule = SchedulingRule(
         company_id=user.company_id,
         name=(body.name or "").strip() or None,
+        rule_kind=body.rule_kind,
         min_source_hours=body.min_source_hours,
         cooldown_hours=body.cooldown_hours,
+        min_count=body.min_count,
+        presence_scope=body.presence_scope,
         severity=body.severity,
-        applies_to_all_roles=body.applies_to_all_roles,
+        applies_to_all_roles=(
+            True
+            if body.rule_kind == SchedulingRuleKind.MIN_PRESENCE
+            else body.applies_to_all_roles
+        ),
         is_active=body.is_active,
     )
     db.add(rule)
@@ -2024,11 +2087,14 @@ def create_scheduling_rule(
         _set_rule_links(
             db,
             rule,
+            kind=body.rule_kind,
             source_ids=body.source_mission_type_ids,
             blocked_ids=body.blocked_mission_type_ids,
             role_ids=body.role_ids,
-            applies_to_all=body.applies_to_all_roles,
+            qualification_ids=body.qualification_ids,
+            applies_to_all=rule.applies_to_all_roles,
             company_id=user.company_id,
+            presence_scope=body.presence_scope,
         )
     except HTTPException:
         db.rollback()
@@ -2052,6 +2118,7 @@ def update_scheduling_rule(
             joinedload(SchedulingRule.source_types),
             joinedload(SchedulingRule.blocked_types),
             joinedload(SchedulingRule.roles),
+            joinedload(SchedulingRule.qualifications),
         )
         .filter(SchedulingRule.id == rule_id, SchedulingRule.company_id == user.company_id)
         .first()
@@ -2061,10 +2128,16 @@ def update_scheduling_rule(
     data = body.model_dump(exclude_unset=True)
     if "name" in data:
         rule.name = (data["name"] or "").strip() or None
+    if "rule_kind" in data and data["rule_kind"] is not None:
+        rule.rule_kind = data["rule_kind"]
     if "min_source_hours" in data and data["min_source_hours"] is not None:
         rule.min_source_hours = data["min_source_hours"]
     if "cooldown_hours" in data and data["cooldown_hours"] is not None:
         rule.cooldown_hours = data["cooldown_hours"]
+    if "min_count" in data and data["min_count"] is not None:
+        rule.min_count = data["min_count"]
+    if "presence_scope" in data and data["presence_scope"] is not None:
+        rule.presence_scope = data["presence_scope"]
     if "severity" in data and data["severity"] is not None:
         rule.severity = data["severity"]
     if "is_active" in data and data["is_active"] is not None:
@@ -2072,28 +2145,27 @@ def update_scheduling_rule(
     if "applies_to_all_roles" in data and data["applies_to_all_roles"] is not None:
         rule.applies_to_all_roles = data["applies_to_all_roles"]
 
-    source_ids = data.get("source_mission_type_ids")
-    blocked_ids = data.get("blocked_mission_type_ids")
-    role_ids = data.get("role_ids")
-    if (
-        source_ids is not None
-        or blocked_ids is not None
-        or role_ids is not None
-        or "applies_to_all_roles" in data
-    ):
-        _set_rule_links(
-            db,
-            rule,
-            source_ids=source_ids
-            if source_ids is not None
-            else [r.mission_type_id for r in rule.source_types],
-            blocked_ids=blocked_ids
-            if blocked_ids is not None
-            else [r.mission_type_id for r in rule.blocked_types],
-            role_ids=role_ids if role_ids is not None else [r.role_id for r in rule.roles],
-            applies_to_all=rule.applies_to_all_roles,
-            company_id=user.company_id,
-        )
+    kind = rule.rule_kind or SchedulingRuleKind.TRANSITION
+    _set_rule_links(
+        db,
+        rule,
+        kind=kind,
+        source_ids=data.get("source_mission_type_ids")
+        if "source_mission_type_ids" in data
+        else [r.mission_type_id for r in rule.source_types],
+        blocked_ids=data.get("blocked_mission_type_ids")
+        if "blocked_mission_type_ids" in data
+        else [r.mission_type_id for r in rule.blocked_types],
+        role_ids=data.get("role_ids")
+        if "role_ids" in data
+        else [r.role_id for r in rule.roles],
+        qualification_ids=data.get("qualification_ids")
+        if "qualification_ids" in data
+        else [r.qualification_id for r in rule.qualifications],
+        applies_to_all=rule.applies_to_all_roles,
+        company_id=user.company_id,
+        presence_scope=rule.presence_scope or PresenceScope.NOT_AT_HOME,
+    )
     db.commit()
     rules = load_scheduling_rules(db, user.company_id)
     updated = next(r for r in rules if r.id == rule_id)

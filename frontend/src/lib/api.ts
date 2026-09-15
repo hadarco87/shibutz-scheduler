@@ -459,16 +459,21 @@ export type SchedulingRule = {
   id: number;
   company_id: number;
   name?: string | null;
+  rule_kind: "transition" | "min_presence";
   source_mission_type_ids: number[];
   blocked_mission_type_ids: number[];
   source_mission_type_names: string[];
   blocked_mission_type_names: string[];
   min_source_hours: number;
   cooldown_hours: number;
+  min_count: number;
+  presence_scope: "not_at_home" | "on_mission" | "on_mission_types";
   severity: "hard" | "soft";
   applies_to_all_roles: boolean;
   role_ids: number[];
   role_names: string[];
+  qualification_ids: number[];
+  qualification_names: string[];
   is_active: boolean;
 };
 

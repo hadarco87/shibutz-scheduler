@@ -76,6 +76,19 @@ class ConstraintType(str, enum.Enum):
     AVOID_REPEAT_MISSION = "avoid_repeat_mission"
 
 
+class SchedulingRuleKind(str, enum.Enum):
+    TRANSITION = "transition"
+    MIN_PRESENCE = "min_presence"
+
+
+class PresenceScope(str, enum.Enum):
+    """Where a matched person counts as 'present' for min-presence rules."""
+
+    NOT_AT_HOME = "not_at_home"  # not on after/leave
+    ON_MISSION = "on_mission"  # assigned to any overlapping mission
+    ON_MISSION_TYPES = "on_mission_types"  # assigned to selected mission types
+
+
 class TimestampMixin:
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
@@ -511,15 +524,24 @@ class SchedulingConstraint(Base, TimestampMixin):
 
 
 class SchedulingRule(Base, TimestampMixin):
-    """User-defined transition / cooldown rules between mission types."""
+    """User-defined scheduling policy: transition cooldowns or min presence."""
 
     __tablename__ = "scheduling_rules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False)
     name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    rule_kind: Mapped[SchedulingRuleKind] = mapped_column(
+        Enum(SchedulingRuleKind), default=SchedulingRuleKind.TRANSITION
+    )
+    # Transition fields
     min_source_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
     cooldown_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    # Min-presence fields
+    min_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    presence_scope: Mapped[PresenceScope] = mapped_column(
+        Enum(PresenceScope), default=PresenceScope.NOT_AT_HOME
+    )
     severity: Mapped[ConstraintSeverity] = mapped_column(
         Enum(ConstraintSeverity), default=ConstraintSeverity.HARD
     )
@@ -534,6 +556,9 @@ class SchedulingRule(Base, TimestampMixin):
         back_populates="rule", cascade="all, delete-orphan"
     )
     roles: Mapped[List["SchedulingRuleRole"]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan"
+    )
+    qualifications: Mapped[List["SchedulingRuleQualification"]] = relationship(
         back_populates="rule", cascade="all, delete-orphan"
     )
 
@@ -592,6 +617,26 @@ class SchedulingRuleRole(Base):
 
     rule: Mapped["SchedulingRule"] = relationship(back_populates="roles")
     role: Mapped["Role"] = relationship()
+
+
+class SchedulingRuleQualification(Base):
+    __tablename__ = "scheduling_rule_qualifications"
+    __table_args__ = (
+        UniqueConstraint(
+            "rule_id", "qualification_id", name="uq_scheduling_rule_qualification"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("scheduling_rules.id", ondelete="CASCADE"), nullable=False
+    )
+    qualification_id: Mapped[int] = mapped_column(
+        ForeignKey("qualifications.id"), nullable=False
+    )
+
+    rule: Mapped["SchedulingRule"] = relationship(back_populates="qualifications")
+    qualification: Mapped["Qualification"] = relationship()
 
 
 class SchedulePlan(Base, TimestampMixin):

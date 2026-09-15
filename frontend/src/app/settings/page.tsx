@@ -108,6 +108,9 @@ export default function SettingsPage() {
   const [kanimDate, setKanimDate] = useState("");
   const [kanimNotes, setKanimNotes] = useState("");
   const [schedulingRules, setSchedulingRules] = useState<SchedulingRule[]>([]);
+  const [ruleKind, setRuleKind] = useState<"transition" | "min_presence">(
+    "transition"
+  );
   const [ruleSources, setRuleSources] = useState<number[]>([]);
   const [ruleBlocked, setRuleBlocked] = useState<number[]>([]);
   const [ruleMinHours, setRuleMinHours] = useState(8);
@@ -115,6 +118,11 @@ export default function SettingsPage() {
   const [ruleSeverity, setRuleSeverity] = useState<"hard" | "soft">("hard");
   const [ruleAllRoles, setRuleAllRoles] = useState(true);
   const [ruleRoleIds, setRuleRoleIds] = useState<number[]>([]);
+  const [ruleQualIds, setRuleQualIds] = useState<number[]>([]);
+  const [ruleMinCount, setRuleMinCount] = useState(1);
+  const [rulePresenceScope, setRulePresenceScope] = useState<
+    "not_at_home" | "on_mission" | "on_mission_types"
+  >("not_at_home");
   const [members, setMembers] = useState<CompanyMember[]>([]);
   const [invites, setInvites] = useState<CompanyInvite[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -674,6 +682,29 @@ export default function SettingsPage() {
   }
 
   function ruleSentencePreview() {
+    if (ruleKind === "min_presence") {
+      const who =
+        [
+          ...ruleRoleIds.map((id) => roles.find((r) => r.id === id)?.name),
+          ...ruleQualIds.map((id) => quals.find((q) => q.id === id)?.name),
+        ]
+          .filter(Boolean)
+          .join(" / ") || "…";
+      const where =
+        rulePresenceScope === "on_mission"
+          ? "במשימה כלשהי"
+          : rulePresenceScope === "on_mission_types"
+            ? `בסוגי משימה: ${
+                ruleSources
+                  .map((id) => missionTypes.find((m) => m.id === id)?.name)
+                  .filter(Boolean)
+                  .join(" / ") || "…"
+              }`
+            : "במוצב או בפעילות (לא בבית)";
+      return `בכל רגע חייבים לפחות ${ruleMinCount} מ־${who} ${where} · ${
+        ruleSeverity === "hard" ? "קשיח" : "רך"
+      }`;
+    }
     const sources =
       ruleSources
         .map((id) => missionTypes.find((m) => m.id === id)?.name)
@@ -695,34 +726,81 @@ export default function SettingsPage() {
     } · ${who}`;
   }
 
+  function resetRuleForm() {
+    setRuleSources([]);
+    setRuleBlocked([]);
+    setRuleMinHours(8);
+    setRuleCooldownHours(8);
+    setRuleSeverity("hard");
+    setRuleAllRoles(true);
+    setRuleRoleIds([]);
+    setRuleQualIds([]);
+    setRuleMinCount(1);
+    setRulePresenceScope("not_at_home");
+  }
+
   async function saveSchedulingRule(e: FormEvent) {
     e.preventDefault();
     if (!token) return;
     setError("");
     setOk("");
     try {
-      await api.createSchedulingRule(token, {
-        source_mission_type_ids: ruleSources,
-        blocked_mission_type_ids: ruleBlocked,
-        min_source_hours: ruleMinHours,
-        cooldown_hours: ruleCooldownHours,
-        severity: ruleSeverity,
-        applies_to_all_roles: ruleAllRoles,
-        role_ids: ruleAllRoles ? [] : ruleRoleIds,
-        is_active: true,
-      });
-      setRuleSources([]);
-      setRuleBlocked([]);
-      setRuleMinHours(8);
-      setRuleCooldownHours(8);
-      setRuleSeverity("hard");
-      setRuleAllRoles(true);
-      setRuleRoleIds([]);
+      if (ruleKind === "min_presence") {
+        await api.createSchedulingRule(token, {
+          rule_kind: "min_presence",
+          min_count: ruleMinCount,
+          presence_scope: rulePresenceScope,
+          role_ids: ruleRoleIds,
+          qualification_ids: ruleQualIds,
+          source_mission_type_ids:
+            rulePresenceScope === "on_mission_types" ? ruleSources : [],
+          blocked_mission_type_ids: [],
+          severity: ruleSeverity,
+          is_active: true,
+        });
+      } else {
+        await api.createSchedulingRule(token, {
+          rule_kind: "transition",
+          source_mission_type_ids: ruleSources,
+          blocked_mission_type_ids: ruleBlocked,
+          min_source_hours: ruleMinHours,
+          cooldown_hours: ruleCooldownHours,
+          severity: ruleSeverity,
+          applies_to_all_roles: ruleAllRoles,
+          role_ids: ruleAllRoles ? [] : ruleRoleIds,
+          is_active: true,
+        });
+      }
+      resetRuleForm();
       setOk("כלל שיבוץ נשמר");
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה");
     }
+  }
+
+  function formatRuleRow(r: SchedulingRule) {
+    if (r.rule_kind === "min_presence") {
+      const who = [
+        ...r.role_names,
+        ...r.qualification_names,
+      ].join(" / ");
+      const where =
+        r.presence_scope === "on_mission"
+          ? "במשימה"
+          : r.presence_scope === "on_mission_types"
+            ? `ב־${r.source_mission_type_names.join(" / ")}`
+            : "לא בבית";
+      return `נוכחות: ≥${r.min_count} מ־${who || "—"} ${where}`;
+    }
+    return (
+      <>
+        אחרי <strong>{r.source_mission_type_names.join(" / ")}</strong> ≥
+        {r.min_source_hours}ש׳ → חסום{" "}
+        <strong>{r.blocked_mission_type_names.join(" / ")}</strong> ל־
+        {r.cooldown_hours}ש׳
+      </>
+    );
   }
 
   function kanimKindLabel(kind: KanimRule["kind"]) {
@@ -1226,12 +1304,13 @@ export default function SettingsPage() {
 
       <SettingsAccordion
         title="כללי שיבוץ"
-        hint="מנוחה, מעבר בין משימות ומדיניות"
+        hint="מנוחה, מעבר בין משימות ונוכחות מינימלית"
       >
         <h2 style={{ marginTop: 0 }}>כללי שיבוץ</h2>
         <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
-          כאן מגדירים בשפה פשוטה מה מותר ומה אסור אחרי משמרת — למשל אחרי 8 שעות
-          ש״ג לא לשבץ לסיור ב־8 השעות הבאות. הכללים חלים גם בין ימים.
+          שני סוגי כללים: <strong>מעבר בין משימות</strong> (אחרי משמרת ארוכה לא
+          מיד לסיור), ו־<strong>נוכחות מינימלית</strong> (למשל תמיד קצין אחד
+          במוצב / לא כל החובשים בבית).
         </p>
 
         <form
@@ -1239,71 +1318,230 @@ export default function SettingsPage() {
           onSubmit={saveSchedulingRule}
           style={{ maxWidth: 640 }}
         >
-          <fieldset className="rule-chip-fieldset">
-            <legend>אחרי משמרת מסוג</legend>
-            <div className="chip-row">
-              {missionTypes.map((mt) => {
-                const on = ruleSources.includes(mt.id);
-                return (
-                  <button
-                    key={`src-${mt.id}`}
-                    type="button"
-                    className={`chip${on ? " active" : ""}`}
-                    onClick={() => setRuleSources(toggleId(ruleSources, mt.id))}
-                  >
-                    {on ? "✓ " : ""}
-                    {mt.name}
-                  </button>
-                );
-              })}
-            </div>
-          </fieldset>
-
           <label>
-            של לפחות (שעות)
-            <input
-              type="number"
-              min={0.5}
-              step={0.5}
-              max={48}
-              value={ruleMinHours}
-              onChange={(e) => setRuleMinHours(Number(e.target.value))}
-              required
-            />
+            סוג הכלל
+            <select
+              value={ruleKind}
+              onChange={(e) =>
+                setRuleKind(e.target.value as "transition" | "min_presence")
+              }
+            >
+              <option value="transition">מעבר בין משימות</option>
+              <option value="min_presence">נוכחות מינימלית בכל רגע</option>
+            </select>
           </label>
 
-          <fieldset className="rule-chip-fieldset">
-            <legend>לא לשבץ לסוגים האלה</legend>
-            <div className="chip-row">
-              {missionTypes.map((mt) => {
-                const on = ruleBlocked.includes(mt.id);
-                return (
-                  <button
-                    key={`blk-${mt.id}`}
-                    type="button"
-                    className={`chip${on ? " active" : ""}`}
-                    onClick={() => setRuleBlocked(toggleId(ruleBlocked, mt.id))}
-                  >
-                    {on ? "✓ " : ""}
-                    {mt.name}
-                  </button>
-                );
-              })}
-            </div>
-          </fieldset>
+          {ruleKind === "transition" ? (
+            <>
+              <fieldset className="rule-chip-fieldset">
+                <legend>אחרי משמרת מסוג</legend>
+                <div className="chip-row">
+                  {missionTypes.map((mt) => {
+                    const on = ruleSources.includes(mt.id);
+                    return (
+                      <button
+                        key={`src-${mt.id}`}
+                        type="button"
+                        className={`chip${on ? " active" : ""}`}
+                        onClick={() =>
+                          setRuleSources(toggleId(ruleSources, mt.id))
+                        }
+                      >
+                        {on ? "✓ " : ""}
+                        {mt.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
 
-          <label>
-            במשך (שעות מסוף המשמרת)
-            <input
-              type="number"
-              min={0.5}
-              step={0.5}
-              max={72}
-              value={ruleCooldownHours}
-              onChange={(e) => setRuleCooldownHours(Number(e.target.value))}
-              required
-            />
-          </label>
+              <label>
+                של לפחות (שעות)
+                <input
+                  type="number"
+                  min={0.5}
+                  step={0.5}
+                  max={48}
+                  value={ruleMinHours}
+                  onChange={(e) => setRuleMinHours(Number(e.target.value))}
+                  required
+                />
+              </label>
+
+              <fieldset className="rule-chip-fieldset">
+                <legend>לא לשבץ לסוגים האלה</legend>
+                <div className="chip-row">
+                  {missionTypes.map((mt) => {
+                    const on = ruleBlocked.includes(mt.id);
+                    return (
+                      <button
+                        key={`blk-${mt.id}`}
+                        type="button"
+                        className={`chip${on ? " active" : ""}`}
+                        onClick={() =>
+                          setRuleBlocked(toggleId(ruleBlocked, mt.id))
+                        }
+                      >
+                        {on ? "✓ " : ""}
+                        {mt.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <label>
+                במשך (שעות מסוף המשמרת)
+                <input
+                  type="number"
+                  min={0.5}
+                  step={0.5}
+                  max={72}
+                  value={ruleCooldownHours}
+                  onChange={(e) => setRuleCooldownHours(Number(e.target.value))}
+                  required
+                />
+              </label>
+
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={ruleAllRoles}
+                  onChange={(e) => setRuleAllRoles(e.target.checked)}
+                />
+                חל על כל כוח האדם
+              </label>
+
+              {!ruleAllRoles ? (
+                <fieldset className="rule-chip-fieldset">
+                  <legend>חל רק על התפקידים</legend>
+                  <div className="chip-row">
+                    {activeRoles.map((r) => {
+                      const on = ruleRoleIds.includes(r.id);
+                      return (
+                        <button
+                          key={`role-${r.id}`}
+                          type="button"
+                          className={`chip${on ? " active" : ""}`}
+                          onClick={() =>
+                            setRuleRoleIds(toggleId(ruleRoleIds, r.id))
+                          }
+                        >
+                          {on ? "✓ " : ""}
+                          {r.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              ) : null}
+            </>
+          ) : (
+            <>
+              <label>
+                לפחות כמה אנשים
+                <input
+                  type="number"
+                  min={1}
+                  max={50}
+                  value={ruleMinCount}
+                  onChange={(e) => setRuleMinCount(Number(e.target.value))}
+                  required
+                />
+              </label>
+
+              <fieldset className="rule-chip-fieldset">
+                <legend>מי נספר (תפקידים)</legend>
+                <div className="chip-row">
+                  {activeRoles.map((r) => {
+                    const on = ruleRoleIds.includes(r.id);
+                    return (
+                      <button
+                        key={`prole-${r.id}`}
+                        type="button"
+                        className={`chip${on ? " active" : ""}`}
+                        onClick={() =>
+                          setRuleRoleIds(toggleId(ruleRoleIds, r.id))
+                        }
+                      >
+                        {on ? "✓ " : ""}
+                        {r.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <fieldset className="rule-chip-fieldset">
+                <legend>מי נספר (פק״לים)</legend>
+                <div className="chip-row">
+                  {quals.map((q) => {
+                    const on = ruleQualIds.includes(q.id);
+                    return (
+                      <button
+                        key={`pq-${q.id}`}
+                        type="button"
+                        className={`chip${on ? " active" : ""}`}
+                        onClick={() =>
+                          setRuleQualIds(toggleId(ruleQualIds, q.id))
+                        }
+                      >
+                        {on ? "✓ " : ""}
+                        {q.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <label>
+                איפה הם חייבים להיות
+                <select
+                  value={rulePresenceScope}
+                  onChange={(e) =>
+                    setRulePresenceScope(
+                      e.target.value as
+                        | "not_at_home"
+                        | "on_mission"
+                        | "on_mission_types"
+                    )
+                  }
+                >
+                  <option value="not_at_home">
+                    במוצב או בפעילות (לא בבית / אפטר / חופשה)
+                  </option>
+                  <option value="on_mission">משובצים למשימה כלשהי</option>
+                  <option value="on_mission_types">
+                    משובצים לסוגי משימה נבחרים (מוצב)
+                  </option>
+                </select>
+              </label>
+
+              {rulePresenceScope === "on_mission_types" ? (
+                <fieldset className="rule-chip-fieldset">
+                  <legend>סוגי משימה שנחשבים «במוצב»</legend>
+                  <div className="chip-row">
+                    {missionTypes.map((mt) => {
+                      const on = ruleSources.includes(mt.id);
+                      return (
+                        <button
+                          key={`outpost-${mt.id}`}
+                          type="button"
+                          className={`chip${on ? " active" : ""}`}
+                          onClick={() =>
+                            setRuleSources(toggleId(ruleSources, mt.id))
+                          }
+                        >
+                          {on ? "✓ " : ""}
+                          {mt.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              ) : null}
+            </>
+          )}
 
           <label>
             חומרת הכלל
@@ -1313,50 +1551,23 @@ export default function SettingsPage() {
                 setRuleSeverity(e.target.value as "hard" | "soft")
               }
             >
-              <option value="hard">קשיח — אסור לשבץ</option>
-              <option value="soft">רך — עדיפות נמוכה / אזהרה</option>
+              <option value="hard">קשיח — אסור לשבור</option>
+              <option value="soft">רך — אזהרה / עדיפות</option>
             </select>
           </label>
-
-          <label className="checkbox-row">
-            <input
-              type="checkbox"
-              checked={ruleAllRoles}
-              onChange={(e) => setRuleAllRoles(e.target.checked)}
-            />
-            חל על כל כוח האדם
-          </label>
-
-          {!ruleAllRoles ? (
-            <fieldset className="rule-chip-fieldset">
-              <legend>חל רק על התפקידים</legend>
-              <div className="chip-row">
-                {activeRoles.map((r) => {
-                  const on = ruleRoleIds.includes(r.id);
-                  return (
-                    <button
-                      key={`role-${r.id}`}
-                      type="button"
-                      className={`chip${on ? " active" : ""}`}
-                      onClick={() =>
-                        setRuleRoleIds(toggleId(ruleRoleIds, r.id))
-                      }
-                    >
-                      {on ? "✓ " : ""}
-                      {r.name}
-                    </button>
-                  );
-                })}
-              </div>
-            </fieldset>
-          ) : null}
 
           <p className="rule-preview">{ruleSentencePreview()}</p>
 
           <button
             className="btn btn-primary"
             type="submit"
-            disabled={!ruleSources.length || !ruleBlocked.length}
+            disabled={
+              ruleKind === "transition"
+                ? !ruleSources.length || !ruleBlocked.length
+                : (!ruleRoleIds.length && !ruleQualIds.length) ||
+                  (rulePresenceScope === "on_mission_types" &&
+                    !ruleSources.length)
+            }
           >
             שמור כלל שיבוץ
           </button>
@@ -1381,18 +1592,14 @@ export default function SettingsPage() {
             ) : (
               schedulingRules.map((r) => (
                 <tr key={r.id} style={{ opacity: r.is_active ? 1 : 0.55 }}>
-                  <td>
-                    אחרי{" "}
-                    <strong>{r.source_mission_type_names.join(" / ")}</strong> ≥
-                    {r.min_source_hours}ש׳ → חסום{" "}
-                    <strong>{r.blocked_mission_type_names.join(" / ")}</strong>{" "}
-                    ל־{r.cooldown_hours}ש׳
-                  </td>
+                  <td>{formatRuleRow(r)}</td>
                   <td>{r.severity === "hard" ? "קשיח" : "רך"}</td>
                   <td>
-                    {r.applies_to_all_roles
-                      ? "כולם"
-                      : r.role_names.join(", ") || "—"}
+                    {r.rule_kind === "min_presence"
+                      ? "כיסוי רציף"
+                      : r.applies_to_all_roles
+                        ? "כולם"
+                        : r.role_names.join(", ") || "—"}
                   </td>
                   <td>
                     <button

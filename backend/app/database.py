@@ -126,6 +126,31 @@ def ensure_schema() -> None:
                     text("ALTER TABLE schedules ADD COLUMN day_index INTEGER DEFAULT 0")
                 )
 
+    if "scheduling_rules" in insp.get_table_names():
+        rule_cols = {c["name"] for c in insp.get_columns("scheduling_rules")}
+        with engine.begin() as conn:
+            if "rule_kind" not in rule_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE scheduling_rules "
+                        "ADD COLUMN rule_kind VARCHAR(32) DEFAULT 'transition'"
+                    )
+                )
+            if "min_count" not in rule_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE scheduling_rules "
+                        "ADD COLUMN min_count INTEGER DEFAULT 1"
+                    )
+                )
+            if "presence_scope" not in rule_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE scheduling_rules "
+                        "ADD COLUMN presence_scope VARCHAR(32) DEFAULT 'not_at_home'"
+                    )
+                )
+
 
 def get_db():
     db = SessionLocal()

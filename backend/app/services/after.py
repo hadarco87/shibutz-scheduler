@@ -246,6 +246,18 @@ def save_after_drafts(
         db.add(row)
         created.append(row)
     db.flush()
+
+    from app.services.policy_rules import evaluate_min_presence_rules
+
+    presence = evaluate_min_presence_rules(
+        db,
+        schedule=schedule,
+        provisional_afters=items,
+    )
+    hard = [v for v in presence if v.severity == "hard"]
+    if hard:
+        raise ValueError(hard[0].message)
+
     return created
 
 
