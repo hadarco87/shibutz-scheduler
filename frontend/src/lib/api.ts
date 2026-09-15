@@ -196,10 +196,11 @@ export const api = {
   replacementCandidates: (
     token: string,
     scheduleId: number,
-    assignmentId: number
+    assignmentId: number,
+    mode: "matching" | "all" = "matching"
   ) =>
-    request<ReplacementCandidate[]>(
-      `/schedules/${scheduleId}/assignments/${assignmentId}/replacements`,
+    request<ReplacementOptions>(
+      `/schedules/${scheduleId}/assignments/${assignmentId}/replacements?mode=${mode}`,
       {},
       token
     ),
@@ -487,6 +488,16 @@ export type ReplacementCandidate = {
   person_name: string;
   role_name?: string | null;
   soft_warnings?: string[];
+  requires_override?: boolean;
+};
+
+export type ReplacementOptions = {
+  mode: "matching" | "all";
+  slot_label: string;
+  required_role_name?: string | null;
+  required_qualification_name?: string | null;
+  empty_message: string;
+  candidates: ReplacementCandidate[];
 };
 
 export type Schedule = {

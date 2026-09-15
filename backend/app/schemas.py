@@ -500,6 +500,16 @@ class ReplacementCandidateOut(BaseModel):
     person_name: str
     role_name: Optional[str] = None
     soft_warnings: List[str] = Field(default_factory=list)
+    requires_override: bool = False
+
+
+class ReplacementOptionsOut(BaseModel):
+    mode: str  # matching | all
+    slot_label: str
+    required_role_name: Optional[str] = None
+    required_qualification_name: Optional[str] = None
+    empty_message: str
+    candidates: List[ReplacementCandidateOut] = Field(default_factory=list)
 
 
 class ScheduleOut(ORMModel):

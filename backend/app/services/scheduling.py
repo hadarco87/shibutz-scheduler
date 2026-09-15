@@ -668,12 +668,39 @@ def publish_schedule(db: Session, schedule: Schedule, user_id: int) -> Schedule:
     return schedule
 
 
+@dataclass
+class ReplacementCandidate:
+    person: Person
+    result: ValidationResult
+    requires_override: bool = False
+
+
+@dataclass
+class ReplacementOptions:
+    mode: str
+    slot_label: str
+    required_role_name: Optional[str]
+    required_qualification_name: Optional[str]
+    empty_message: str
+    candidates: List[ReplacementCandidate] = field(default_factory=list)
+
+
 def list_replacement_candidates(
     db: Session,
     schedule: Schedule,
     assignment_id: int,
-) -> List[Tuple[Person, ValidationResult]]:
-    """People who can validly take this assignment slot (hard constraints)."""
+    *,
+    mode: str = "matching",
+) -> ReplacementOptions:
+    """List people who can take this assignment slot.
+
+    mode=matching: must satisfy the slot's role/qualification requirements.
+    mode=all: ignore role/qual requirements (still blocks leave/overlap/etc.);
+              candidates that fail matching are marked requires_override=True.
+    """
+    if mode not in ("matching", "all"):
+        mode = "matching"
+
     assignment = (
         db.query(Assignment)
         .filter(Assignment.id == assignment_id, Assignment.schedule_id == schedule.id)
@@ -710,12 +737,38 @@ def list_replacement_candidates(
             None,
         )
 
-    eligible: List[Tuple[Person, ValidationResult]] = []
     required_role_id = req.role_id if req else None
+    required_qualification_id = req.qualification_id if req else None
+
+    role_name = None
+    if required_role_id:
+        role = db.get(Role, required_role_id)
+        role_name = role.name if role else None
+    qual_name = None
+    if required_qualification_id:
+        qual = db.get(Qualification, required_qualification_id)
+        qual_name = qual.name if qual else None
+
+    slot_parts: List[str] = []
+    if role_name:
+        slot_parts.append(f"תפקיד «{role_name}»")
+    if qual_name:
+        slot_parts.append(f"פק״ל «{qual_name}»")
+    slot_label = " + ".join(slot_parts) if slot_parts else "איוש כללי"
+
+    if qual_name:
+        empty_message = f"אין אנשים עם פק״ל «{qual_name}» שזמינים למשבצת הזו כרגע"
+    elif role_name:
+        empty_message = f"אין אנשים שיכולים למלא תפקיד «{role_name}» שזמינים למשבצת הזו כרגע"
+    else:
+        empty_message = "אין חיילים זמינים למשבצת הזו כרגע"
+
+    candidates: List[ReplacementCandidate] = []
     for person in load_people(db, schedule.company_id):
         if person.id == assignment.person_id:
             continue
-        result = validate_assignment(
+
+        matching_result = validate_assignment(
             db,
             company_id=schedule.company_id,
             person=person,
@@ -723,19 +776,70 @@ def list_replacement_candidates(
             existing_assignments=others,
             missions_by_id=missions_by_id,
             required_role_id=required_role_id,
-            required_qualification_id=req.qualification_id if req else None,
+            required_qualification_id=required_qualification_id,
         )
-        if result.ok:
-            eligible.append((person, result))
 
-    # Prefer soldiers over commanders when both are valid; then alphabetical.
-    eligible.sort(
-        key=lambda x: (
-            _overqualification_cost(x[0], required_role_id),
-            x[0].full_name,
+        if mode == "matching":
+            if matching_result.ok:
+                candidates.append(
+                    ReplacementCandidate(
+                        person=person,
+                        result=matching_result,
+                        requires_override=False,
+                    )
+                )
+            continue
+
+        # mode == "all": keep hard availability constraints, relax role/qual fit
+        availability_result = validate_assignment(
+            db,
+            company_id=schedule.company_id,
+            person=person,
+            mission=mission,
+            existing_assignments=others,
+            missions_by_id=missions_by_id,
+            required_role_id=None,
+            required_qualification_id=None,
+        )
+        if not availability_result.ok:
+            continue
+        requires_override = not matching_result.ok
+        if requires_override:
+            for v in matching_result.hard_violations:
+                if v.code in ("role", "qualification"):
+                    availability_result.violations.append(
+                        Violation(
+                            "soft",
+                            v.code,
+                            v.message,
+                            v.mission_id,
+                            v.person_id,
+                            v.details,
+                        )
+                    )
+        candidates.append(
+            ReplacementCandidate(
+                person=person,
+                result=availability_result,
+                requires_override=requires_override,
+            )
+        )
+
+    candidates.sort(
+        key=lambda c: (
+            1 if c.requires_override else 0,
+            _overqualification_cost(c.person, required_role_id),
+            c.person.full_name,
         )
     )
-    return eligible
+    return ReplacementOptions(
+        mode=mode,
+        slot_label=slot_label,
+        required_role_name=role_name,
+        required_qualification_name=qual_name,
+        empty_message=empty_message,
+        candidates=candidates,
+    )
 
 
 def replace_assignment(

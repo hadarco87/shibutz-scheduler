@@ -83,6 +83,7 @@ from app.schemas import (
     QualificationOut,
     QualificationUpdate,
     ReplacementCandidateOut,
+    ReplacementOptionsOut,
     RestrictionCreate,
     RestrictionOut,
     RecurringRestrictionCreate,
@@ -1874,11 +1875,12 @@ def generate(
 
 @router.get(
     "/schedules/{schedule_id}/assignments/{assignment_id}/replacements",
-    response_model=List[ReplacementCandidateOut],
+    response_model=ReplacementOptionsOut,
 )
 def list_replacements(
     schedule_id: int,
     assignment_id: int,
+    mode: str = Query("matching", pattern="^(matching|all)$"),
     db: Session = Depends(get_db),
     user: User = Depends(get_current_user),
 ):
@@ -1890,18 +1892,28 @@ def list_replacements(
     if not schedule:
         raise HTTPException(404, "שיבוץ לא נמצא")
     try:
-        candidates = list_replacement_candidates(db, schedule, assignment_id)
+        options = list_replacement_candidates(
+            db, schedule, assignment_id, mode=mode
+        )
     except ValueError as e:
         raise HTTPException(404, str(e))
-    return [
-        ReplacementCandidateOut(
-            person_id=person.id,
-            person_name=person.full_name,
-            role_name=person.role.name if person.role else None,
-            soft_warnings=[v.message for v in result.soft_violations],
-        )
-        for person, result in candidates
-    ]
+    return ReplacementOptionsOut(
+        mode=options.mode,
+        slot_label=options.slot_label,
+        required_role_name=options.required_role_name,
+        required_qualification_name=options.required_qualification_name,
+        empty_message=options.empty_message,
+        candidates=[
+            ReplacementCandidateOut(
+                person_id=c.person.id,
+                person_name=c.person.full_name,
+                role_name=c.person.role.name if c.person.role else None,
+                soft_warnings=[v.message for v in c.result.soft_violations],
+                requires_override=c.requires_override,
+            )
+            for c in options.candidates
+        ],
+    )
 
 
 @router.post("/schedules/{schedule_id}/assignments/{assignment_id}/replace", response_model=AssignmentOut)

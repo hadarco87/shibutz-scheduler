@@ -568,10 +568,85 @@ def test_replacement_candidates_filter_by_role_and_availability(db, company_data
     db.commit()
 
     candidates = list_replacement_candidates(db, schedule, assignment.id)
-    names = {p.full_name for p, _ in candidates}
+    names = {c.person.full_name for c in candidates.candidates}
     assert "Sold A" not in names
     assert "Sold B" not in names
     assert "Cmd Only" in names
+    assert candidates.mode == "matching"
+    assert "חייל" in (candidates.slot_label or "")
+
+
+def test_replacement_all_mode_marks_override_for_missing_qual(db, company_data):
+    from app.services.scheduling import list_replacement_candidates
+
+    medic = company_data["medic"]
+    soldier_medic = Person(
+        company_id=company_data["company"].id,
+        full_name="חייל חובש",
+        role_id=company_data["soldier"].id,
+    )
+    soldier_plain = Person(
+        company_id=company_data["company"].id,
+        full_name="חייל רגיל",
+        role_id=company_data["soldier"].id,
+    )
+    db.add_all([soldier_medic, soldier_plain])
+    db.flush()
+    db.add(PersonQualification(person_id=soldier_medic.id, qualification_id=medic.id))
+    db.flush()
+
+    mt = MissionType(
+        company_id=company_data["company"].id,
+        name="פינוי",
+        difficulty_weight=2,
+        default_personnel_count=1,
+    )
+    db.add(mt)
+    db.flush()
+    schedule = Schedule(
+        company_id=company_data["company"].id,
+        window_start=datetime(2026, 9, 22, 0),
+        window_end=datetime(2026, 9, 23, 0),
+        status=ScheduleStatus.DRAFT,
+        created_by_id=company_data["user"].id,
+    )
+    db.add(schedule)
+    db.flush()
+    mission = Mission(
+        company_id=company_data["company"].id,
+        mission_type_id=mt.id,
+        name="פינוי",
+        start_at=datetime(2026, 9, 22, 8),
+        end_at=datetime(2026, 9, 22, 12),
+        difficulty_weight=2,
+        personnel_count=1,
+        schedule_id=schedule.id,
+    )
+    db.add(mission)
+    db.flush()
+    req = MissionRequirement(
+        mission_id=mission.id, qualification_id=medic.id, count=1
+    )
+    db.add(req)
+    db.flush()
+    assignment = Assignment(
+        schedule_id=schedule.id,
+        mission_id=mission.id,
+        person_id=soldier_medic.id,
+        requirement_id=req.id,
+        difficulty_at_assignment=2,
+    )
+    db.add(assignment)
+    db.commit()
+
+    matching = list_replacement_candidates(db, schedule, assignment.id, mode="matching")
+    assert matching.candidates == []
+    assert "חובש" in matching.empty_message
+
+    all_opts = list_replacement_candidates(db, schedule, assignment.id, mode="all")
+    by_name = {c.person.full_name: c for c in all_opts.candidates}
+    assert "חייל רגיל" in by_name
+    assert by_name["חייל רגיל"].requires_override is True
 
 
 def test_prefer_soldier_over_commander_for_soldier_slot(db, company_data):

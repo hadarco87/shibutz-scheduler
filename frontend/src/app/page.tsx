@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { SchedulePdfSheet } from "@/components/SchedulePdfSheet";
+import { SchedulingHowItWorksButton } from "@/components/SchedulingHowItWorks";
 import { useAuth } from "@/lib/auth";
 import {
   api,
@@ -14,7 +15,7 @@ import {
   Person,
   Schedule,
   SchedulingResult,
-  ReplacementCandidate,
+  ReplacementOptions,
 } from "@/lib/api";
 import { routineShiftsForWindow, resolveStaffingForStart, windowShiftsForRange } from "@/lib/routine";
 import {
@@ -119,9 +120,10 @@ export default function HomePage() {
   const [autoPdfAfterPublish, setAutoPdfAfterPublish] = useState(false);
   const [replaceFor, setReplaceFor] = useState<number | null>(null);
   const [replacePersonId, setReplacePersonId] = useState<number | "">("");
-  const [replaceCandidates, setReplaceCandidates] = useState<
-    ReplacementCandidate[]
-  >([]);
+  const [replaceOptions, setReplaceOptions] = useState<ReplacementOptions | null>(
+    null
+  );
+  const [replaceMode, setReplaceMode] = useState<"matching" | "all">("matching");
   const [replaceLoading, setReplaceLoading] = useState(false);
   const [afterPreview, setAfterPreview] = useState<AfterPreview | null>(null);
   const [afterSelected, setAfterSelected] = useState<
@@ -549,41 +551,80 @@ export default function HomePage() {
     }
   }
 
-  async function openReplace(assignmentId: number) {
+  async function loadReplaceOptions(
+    assignmentId: number,
+    mode: "matching" | "all"
+  ) {
     if (!token || !schedule) return;
-    setReplaceFor(assignmentId);
-    setReplacePersonId("");
-    setReplaceCandidates([]);
     setReplaceLoading(true);
     setError("");
     try {
-      const candidates = await api.replacementCandidates(
+      const options = await api.replacementCandidates(
         token,
         schedule.id,
-        assignmentId
+        assignmentId,
+        mode
       );
-      setReplaceCandidates(candidates);
+      setReplaceOptions(options);
+      setReplaceMode(mode);
+      setReplacePersonId("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "טעינת מועמדים נכשלה");
-      setReplaceFor(null);
+      if (mode === "matching") {
+        setReplaceFor(null);
+        setReplaceOptions(null);
+      }
     } finally {
       setReplaceLoading(false);
     }
   }
 
+  async function openReplace(assignmentId: number) {
+    if (!token || !schedule) return;
+    setReplaceFor(assignmentId);
+    setReplacePersonId("");
+    setReplaceOptions(null);
+    setReplaceMode("matching");
+    await loadReplaceOptions(assignmentId, "matching");
+  }
+
+  function closeReplace() {
+    setReplaceFor(null);
+    setReplacePersonId("");
+    setReplaceOptions(null);
+    setReplaceMode("matching");
+  }
+
   async function onReplace(assignmentId: number) {
-    if (!token || !schedule || !replacePersonId) return;
+    if (!token || !schedule || !replacePersonId || !replaceOptions) return;
+    const selected = replaceOptions.candidates.find(
+      (c) => c.person_id === Number(replacePersonId)
+    );
+    if (!selected) return;
+
+    let overrideReason: string | undefined;
+    if (selected.requires_override) {
+      const slot = replaceOptions.slot_label;
+      const ok = await confirm({
+        title: "שיבוץ עם עקיפה",
+        message: `${selected.person_name} אינו עומד בדרישת המשבצת (${slot}). לשבץ בכל זאת?`,
+        confirmLabel: "שבץ בכל זאת",
+        tone: "danger",
+      });
+      if (!ok) return;
+      overrideReason = `עקיפת דרישת משבצת (${slot})`;
+    }
+
     setBusy(true);
     setError("");
     try {
       await api.replaceAssignment(token, schedule.id, assignmentId, {
         person_id: Number(replacePersonId),
+        ...(overrideReason ? { override_reason: overrideReason } : {}),
       });
       const refreshed = await api.getSchedule(token, schedule.id);
       setSchedule(refreshed);
-      setReplaceFor(null);
-      setReplacePersonId("");
-      setReplaceCandidates([]);
+      closeReplace();
     } catch (e) {
       setError(e instanceof Error ? e.message : "החלפה נכשלה");
     } finally {
@@ -646,8 +687,18 @@ export default function HomePage() {
       <section className="panel">
         <div className="hero-actions">
           <div>
-            <h1 style={{ margin: "0 0 0.35rem", fontSize: "1.7rem" }}>
+            <h1
+              style={{
+                margin: "0 0 0.35rem",
+                fontSize: "1.7rem",
+                display: "flex",
+                alignItems: "center",
+                gap: "0.55rem",
+                flexWrap: "wrap",
+              }}
+            >
               מסך שיבוץ
+              <SchedulingHowItWorksButton />
             </h1>
             <p style={{ margin: "0 0 0.35rem", color: "var(--ink-soft)" }}>
               <span className="schedule-day-badge muted">היום</span>
@@ -1053,61 +1104,108 @@ export default function HomePage() {
                         style={{
                           marginTop: "0.75rem",
                           display: "flex",
+                          flexDirection: "column",
                           gap: "0.5rem",
-                          flexWrap: "wrap",
-                          alignItems: "center",
+                          alignItems: "stretch",
                         }}
                       >
-                        {replaceLoading ? (
-                          <span style={{ color: "var(--ink-soft)" }}>
-                            טוען מועמדים מתאימים…
-                          </span>
-                        ) : replaceCandidates.length === 0 ? (
-                          <span style={{ color: "var(--danger)" }}>
-                            אין חיילים שיכולים לבצע את המשבצת הזו כרגע
-                          </span>
-                        ) : (
-                          <select
-                            value={replacePersonId}
-                            onChange={(e) =>
-                              setReplacePersonId(
-                                e.target.value ? Number(e.target.value) : ""
-                              )
-                            }
+                        {replaceOptions?.slot_label ? (
+                          <span
+                            style={{
+                              color: "var(--ink-soft)",
+                              fontSize: "0.9rem",
+                            }}
                           >
-                            <option value="">בחרו חייל</option>
-                            {replaceCandidates.map((p) => (
-                              <option key={p.person_id} value={p.person_id}>
-                                {p.person_name}
-                                {p.role_name ? ` (${p.role_name})` : ""}
-                              </option>
-                            ))}
-                          </select>
-                        )}
-                        <button
-                          className="btn btn-primary btn-small"
-                          type="button"
-                          disabled={
-                            !replacePersonId ||
-                            busy ||
-                            replaceLoading ||
-                            replaceCandidates.length === 0
-                          }
-                          onClick={() => onReplace(replaceFor)}
-                        >
-                          שמור החלפה
-                        </button>
-                        <button
-                          className="btn btn-ghost btn-small"
-                          type="button"
-                          onClick={() => {
-                            setReplaceFor(null);
-                            setReplacePersonId("");
-                            setReplaceCandidates([]);
+                            מחפשים מחליף ל־{replaceOptions.slot_label}
+                            {replaceMode === "all"
+                              ? " · מוצג כל הכוח אדם הזמין"
+                              : ""}
+                          </span>
+                        ) : null}
+                        <div
+                          style={{
+                            display: "flex",
+                            gap: "0.5rem",
+                            flexWrap: "wrap",
+                            alignItems: "center",
                           }}
                         >
-                          ביטול
-                        </button>
+                          {replaceLoading ? (
+                            <span style={{ color: "var(--ink-soft)" }}>
+                              {replaceMode === "matching"
+                                ? "טוען מועמדים מתאימים…"
+                                : "טוען את כל הכוח אדם הזמין…"}
+                            </span>
+                          ) : !replaceOptions ||
+                            replaceOptions.candidates.length === 0 ? (
+                            <span style={{ color: "var(--danger)" }}>
+                              {replaceOptions?.empty_message ||
+                                "אין חיילים זמינים למשבצת הזו כרגע"}
+                            </span>
+                          ) : (
+                            <select
+                              value={replacePersonId}
+                              onChange={(e) =>
+                                setReplacePersonId(
+                                  e.target.value ? Number(e.target.value) : ""
+                                )
+                              }
+                            >
+                              <option value="">בחרו חייל</option>
+                              {replaceOptions.candidates.map((p) => (
+                                <option key={p.person_id} value={p.person_id}>
+                                  {p.person_name}
+                                  {p.role_name ? ` (${p.role_name})` : ""}
+                                  {p.requires_override ? " — דורש עקיפה" : ""}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                          <button
+                            className="btn btn-primary btn-small"
+                            type="button"
+                            disabled={
+                              !replacePersonId ||
+                              busy ||
+                              replaceLoading ||
+                              !replaceOptions ||
+                              replaceOptions.candidates.length === 0
+                            }
+                            onClick={() => onReplace(replaceFor)}
+                          >
+                            שמור החלפה
+                          </button>
+                          {replaceMode === "matching" ? (
+                            <button
+                              className="btn btn-ghost btn-small"
+                              type="button"
+                              disabled={busy || replaceLoading}
+                              onClick={() =>
+                                loadReplaceOptions(replaceFor, "all")
+                              }
+                            >
+                              הצג את כל הכוח אדם הזמין
+                            </button>
+                          ) : (
+                            <button
+                              className="btn btn-ghost btn-small"
+                              type="button"
+                              disabled={busy || replaceLoading}
+                              onClick={() =>
+                                loadReplaceOptions(replaceFor, "matching")
+                              }
+                            >
+                              חזרה למתאימים בלבד
+                            </button>
+                          )}
+                          <button
+                            className="btn btn-ghost btn-small"
+                            type="button"
+                            onClick={closeReplace}
+                          >
+                            ביטול
+                          </button>
+                        </div>
                       </div>
                     ) : null}
                   </article>
