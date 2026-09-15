@@ -1,5 +1,6 @@
 from datetime import datetime, timedelta
 from typing import List, Optional
+import secrets
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile
 from fastapi.security import OAuth2PasswordRequestForm
@@ -13,6 +14,7 @@ from app.models import (
     AfterDraft,
     AfterGrant,
     Company,
+    CompanyInvite,
     LeavePeriod,
     Mission,
     MissionRequirement,
@@ -33,6 +35,7 @@ from app.models import (
     ScheduleStatus,
     SchedulingConstraint,
     User,
+    UserRole,
     WorkloadEvent,
     WorkloadSnapshotEntry,
     KanimRule,
@@ -54,6 +57,11 @@ from app.schemas import (
     LeaveOut,
     LoginRequest,
     RegisterRequest,
+    RegisterInviteRequest,
+    InvitePreviewOut,
+    CompanyInviteCreate,
+    CompanyInviteOut,
+    CompanyMemberOut,
     MissionCreate,
     MissionOut,
     MissionRequirementOut,
@@ -94,7 +102,7 @@ from app.schemas import (
     HistoryPersonHoursOut,
     WorkloadPersonOut,
 )
-from app.security import authenticate_user, create_access_token
+from app.security import authenticate_user, create_access_token, get_password_hash
 from app.services.bootstrap import bootstrap_company
 from app.services.excel_import import apply_people_import, parse_people_workbook
 from app.services.after import (
@@ -383,6 +391,28 @@ def mission_out(m: Mission) -> MissionOut:
 
 
 def assignment_out(a: Assignment) -> AssignmentOut:
+    person = a.person
+    role_name = None
+    qual_names: list[str] = []
+    if person is not None:
+        role_name = person.role.name if person.role else None
+        qual_names = sorted(
+            {
+                pq.qualification.name
+                for pq in (person.qualifications or [])
+                if pq.qualification and pq.qualification.name
+            }
+        )
+    req = a.requirement
+    slot_role = None
+    slot_qual = None
+    if req is not None:
+        if req.role_id and getattr(req, "role", None):
+            slot_role = req.role.name
+        elif req.role_id:
+            slot_role = None
+        if req.qualification_id and getattr(req, "qualification", None):
+            slot_qual = req.qualification.name
     return AssignmentOut(
         id=a.id,
         schedule_id=a.schedule_id,
@@ -392,8 +422,12 @@ def assignment_out(a: Assignment) -> AssignmentOut:
         is_manual=a.is_manual,
         override_reason=a.override_reason,
         difficulty_at_assignment=a.difficulty_at_assignment,
-        person_name=a.person.full_name if a.person else None,
+        person_name=person.full_name if person else None,
         mission_name=a.mission.name if a.mission else None,
+        person_role_name=role_name,
+        person_qualification_names=qual_names,
+        slot_role_name=slot_role,
+        slot_qualification_name=slot_qual,
     )
 
 
@@ -401,8 +435,20 @@ def schedule_out(db: Session, schedule: Schedule) -> ScheduleOut:
     schedule = (
         db.query(Schedule)
         .options(
-            joinedload(Schedule.assignments).joinedload(Assignment.person),
+            joinedload(Schedule.assignments)
+            .joinedload(Assignment.person)
+            .joinedload(Person.role),
+            joinedload(Schedule.assignments)
+            .joinedload(Assignment.person)
+            .joinedload(Person.qualifications)
+            .joinedload(PersonQualification.qualification),
             joinedload(Schedule.assignments).joinedload(Assignment.mission),
+            joinedload(Schedule.assignments)
+            .joinedload(Assignment.requirement)
+            .joinedload(MissionRequirement.role),
+            joinedload(Schedule.assignments)
+            .joinedload(Assignment.requirement)
+            .joinedload(MissionRequirement.qualification),
             joinedload(Schedule.missions).joinedload(Mission.requirements),
             joinedload(Schedule.missions).joinedload(Mission.mission_type),
         )
@@ -477,6 +523,197 @@ def me(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
         is_active=user.is_active,
         company_name=company.name if company else None,
     )
+
+
+def _invite_out(invite: CompanyInvite) -> CompanyInviteOut:
+    return CompanyInviteOut(
+        id=invite.id,
+        email=invite.email,
+        token=invite.token,
+        created_at=invite.created_at,
+        accepted_at=invite.accepted_at,
+        invited_by_name=invite.invited_by.full_name if invite.invited_by else None,
+    )
+
+
+def _active_invite_by_token(db: Session, token: str) -> CompanyInvite:
+    invite = (
+        db.query(CompanyInvite)
+        .options(joinedload(CompanyInvite.company), joinedload(CompanyInvite.invited_by))
+        .filter(CompanyInvite.token == token)
+        .first()
+    )
+    if not invite or invite.revoked_at is not None:
+        raise HTTPException(404, "ההזמנה לא נמצאה או בוטלה")
+    if invite.accepted_at is not None:
+        raise HTTPException(400, "ההזמנה כבר מומשה")
+    return invite
+
+
+@router.get("/auth/invite/{token}", response_model=InvitePreviewOut)
+def preview_invite(token: str, db: Session = Depends(get_db)):
+    invite = _active_invite_by_token(db, token)
+    return InvitePreviewOut(
+        company_name=invite.company.name if invite.company else "",
+        email=invite.email,
+        invited_by_name=invite.invited_by.full_name if invite.invited_by else None,
+    )
+
+
+@router.post("/auth/register-invite", response_model=Token)
+def register_with_invite(body: RegisterInviteRequest, db: Session = Depends(get_db)):
+    invite = _active_invite_by_token(db, body.token.strip())
+    email = body.email.strip().lower()
+    if email != invite.email.strip().lower():
+        raise HTTPException(400, "יש להירשם עם כתובת האימייל שאליה נשלחה ההזמנה")
+    if db.query(User).filter(User.email == email).first():
+        raise HTTPException(400, "האימייל כבר רשום במערכת — התחברו במקום להירשם")
+    full_name = body.full_name.strip()
+    if not full_name:
+        raise HTTPException(400, "שם מלא נדרש")
+
+    user = User(
+        company_id=invite.company_id,
+        email=email,
+        full_name=full_name,
+        hashed_password=get_password_hash(body.password),
+        role=UserRole.COMMANDER,
+    )
+    db.add(user)
+    invite.accepted_at = datetime.utcnow()
+    db.commit()
+    return Token(access_token=create_access_token(user.email))
+
+
+@router.get("/company/members", response_model=List[CompanyMemberOut])
+def list_company_members(
+    db: Session = Depends(get_db), user: User = Depends(require_commander)
+):
+    members = (
+        db.query(User)
+        .filter(User.company_id == user.company_id)
+        .order_by(User.full_name.asc())
+        .all()
+    )
+    return [
+        CompanyMemberOut(
+            id=m.id,
+            email=m.email,
+            full_name=m.full_name,
+            role=m.role,
+            is_active=m.is_active,
+        )
+        for m in members
+    ]
+
+
+@router.get("/company/invites", response_model=List[CompanyInviteOut])
+def list_company_invites(
+    db: Session = Depends(get_db), user: User = Depends(require_commander)
+):
+    invites = (
+        db.query(CompanyInvite)
+        .options(joinedload(CompanyInvite.invited_by))
+        .filter(
+            CompanyInvite.company_id == user.company_id,
+            CompanyInvite.accepted_at.is_(None),
+            CompanyInvite.revoked_at.is_(None),
+        )
+        .order_by(CompanyInvite.created_at.desc())
+        .all()
+    )
+    return [_invite_out(i) for i in invites]
+
+
+@router.post("/company/invites", response_model=CompanyInviteOut)
+def create_company_invite(
+    body: CompanyInviteCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    email = body.email.strip().lower()
+    existing_user = db.query(User).filter(User.email == email).first()
+    if existing_user:
+        if existing_user.company_id == user.company_id:
+            raise HTTPException(400, "המשתמש כבר חבר בפלוגה")
+        raise HTTPException(
+            400,
+            "האימייל כבר רשום בפלוגה אחרת. הזמנה אפשרית רק למייל שעדיין לא רשום.",
+        )
+
+    pending = (
+        db.query(CompanyInvite)
+        .filter(
+            CompanyInvite.company_id == user.company_id,
+            CompanyInvite.email == email,
+            CompanyInvite.accepted_at.is_(None),
+            CompanyInvite.revoked_at.is_(None),
+        )
+        .first()
+    )
+    if pending:
+        return _invite_out(pending)
+
+    # Re-open a previously revoked invite for same email
+    prior = (
+        db.query(CompanyInvite)
+        .filter(CompanyInvite.company_id == user.company_id, CompanyInvite.email == email)
+        .first()
+    )
+    if prior and prior.accepted_at is None:
+        prior.revoked_at = None
+        prior.token = secrets.token_urlsafe(24)
+        prior.invited_by_id = user.id
+        db.commit()
+        db.refresh(prior)
+        prior = (
+            db.query(CompanyInvite)
+            .options(joinedload(CompanyInvite.invited_by))
+            .filter(CompanyInvite.id == prior.id)
+            .one()
+        )
+        return _invite_out(prior)
+
+    invite = CompanyInvite(
+        company_id=user.company_id,
+        email=email,
+        token=secrets.token_urlsafe(24),
+        invited_by_id=user.id,
+    )
+    db.add(invite)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(400, "לא ניתן ליצור הזמנה — נסו שוב")
+    invite = (
+        db.query(CompanyInvite)
+        .options(joinedload(CompanyInvite.invited_by))
+        .filter(CompanyInvite.id == invite.id)
+        .one()
+    )
+    return _invite_out(invite)
+
+
+@router.delete("/company/invites/{invite_id}")
+def revoke_company_invite(
+    invite_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    invite = (
+        db.query(CompanyInvite)
+        .filter(CompanyInvite.id == invite_id, CompanyInvite.company_id == user.company_id)
+        .first()
+    )
+    if not invite:
+        raise HTTPException(404, "הזמנה לא נמצאה")
+    if invite.accepted_at is not None:
+        raise HTTPException(400, "ההזמנה כבר מומשה")
+    invite.revoked_at = datetime.utcnow()
+    db.commit()
+    return {"ok": True}
+
 
 # ---------- roles ----------
 

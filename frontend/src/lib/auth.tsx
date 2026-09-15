@@ -17,12 +17,20 @@ type RegisterInput = {
   company_name: string;
 };
 
+type RegisterInviteInput = {
+  token: string;
+  email: string;
+  password: string;
+  full_name: string;
+};
+
 type AuthState = {
   token: string | null;
   user: User | null;
   loading: boolean;
   login: (email: string, password: string) => Promise<void>;
   register: (input: RegisterInput) => Promise<void>;
+  registerInvite: (input: RegisterInviteInput) => Promise<void>;
   logout: () => void;
 };
 
@@ -72,6 +80,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     [applyToken]
   );
 
+  const registerInvite = useCallback(
+    async (input: RegisterInviteInput) => {
+      const res = await api.registerInvite(input);
+      await applyToken(res.access_token);
+    },
+    [applyToken]
+  );
+
   const logout = useCallback(() => {
     localStorage.removeItem("shibutz_token");
     setToken(null);
@@ -79,8 +95,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ token, user, loading, login, register, logout }),
-    [token, user, loading, login, register, logout]
+    () => ({ token, user, loading, login, register, registerInvite, logout }),
+    [token, user, loading, login, register, registerInvite, logout]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

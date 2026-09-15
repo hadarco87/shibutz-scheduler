@@ -88,6 +88,30 @@ export const api = {
       body: JSON.stringify(body),
     }),
   me: (token: string) => request<User>("/auth/me", {}, token),
+  previewInvite: (token: string) =>
+    request<InvitePreview>(`/auth/invite/${token}`, {}),
+  registerInvite: (body: {
+    token: string;
+    email: string;
+    password: string;
+    full_name: string;
+  }) =>
+    request<TokenResponse>("/auth/register-invite", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  companyMembers: (token: string) =>
+    request<CompanyMember[]>("/company/members", {}, token),
+  companyInvites: (token: string) =>
+    request<CompanyInvite[]>("/company/invites", {}, token),
+  createCompanyInvite: (token: string, email: string) =>
+    request<CompanyInvite>(
+      "/company/invites",
+      { method: "POST", body: JSON.stringify({ email }) },
+      token
+    ),
+  revokeCompanyInvite: (token: string, id: number) =>
+    request(`/company/invites/${id}`, { method: "DELETE" }, token),
   people: (token: string) => request<Person[]>("/people", {}, token),
   previewPeopleImport: (token: string, file: File, sheet?: string) => {
     const form = new FormData();
@@ -217,6 +241,29 @@ export type User = {
   company_id: number;
   is_active: boolean;
   company_name?: string | null;
+};
+
+export type CompanyMember = {
+  id: number;
+  email: string;
+  full_name: string;
+  role: string;
+  is_active: boolean;
+};
+
+export type CompanyInvite = {
+  id: number;
+  email: string;
+  token: string;
+  created_at: string;
+  accepted_at?: string | null;
+  invited_by_name?: string | null;
+};
+
+export type InvitePreview = {
+  company_name: string;
+  email: string;
+  invited_by_name?: string | null;
 };
 
 export type Person = {
@@ -429,6 +476,10 @@ export type Assignment = {
   difficulty_at_assignment: number;
   person_name?: string | null;
   mission_name?: string | null;
+  person_role_name?: string | null;
+  person_qualification_names?: string[];
+  slot_role_name?: string | null;
+  slot_qualification_name?: string | null;
 };
 
 export type ReplacementCandidate = {

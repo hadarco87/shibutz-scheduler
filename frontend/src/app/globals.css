@@ -360,6 +360,15 @@ textarea {
   white-space: nowrap;
 }
 
+.mission-card.understaffed {
+  border-color: rgba(155, 44, 44, 0.35);
+}
+
+.mission-card .time.understaffed-label {
+  color: #9b2c2c;
+  white-space: normal;
+}
+
 .people-chips {
   display: flex;
   flex-wrap: wrap;
@@ -374,6 +383,36 @@ textarea {
   border-radius: 999px;
   background: rgba(63, 90, 50, 0.1);
   font-size: 0.9rem;
+}
+
+.chip-person {
+  align-items: flex-start;
+  border-radius: 12px;
+  padding: 0.45rem 0.55rem 0.45rem 0.7rem;
+  max-width: 100%;
+}
+
+.chip-text {
+  display: flex;
+  flex-direction: column;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.chip-meta {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  line-height: 1.35;
+  white-space: normal;
+}
+
+.conflict-list {
+  margin: 0.45rem 0 0;
+  padding-inline-start: 1.2rem;
+}
+
+.conflict-list li + li {
+  margin-top: 0.35rem;
 }
 
 .chip.manual {
@@ -515,6 +554,98 @@ textarea {
 
 .btn-danger-ghost:hover {
   background: rgba(155, 44, 44, 0.08);
+}
+
+.btn-danger {
+  background: var(--danger);
+  color: #fff8f3;
+  box-shadow: 0 8px 18px rgba(139, 46, 46, 0.25);
+  font-size: 1rem;
+  min-width: 120px;
+}
+
+.app-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(28, 36, 24, 0.45);
+  backdrop-filter: blur(3px);
+  animation: app-dialog-fade 0.16s ease;
+}
+
+.app-dialog {
+  width: min(420px, 100%);
+  padding: 1.25rem 1.35rem 1.15rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: 0 18px 48px rgba(28, 36, 24, 0.22);
+  animation: app-dialog-pop 0.18s ease;
+}
+
+.app-dialog-danger {
+  border-color: rgba(139, 46, 46, 0.28);
+}
+
+.app-dialog-title {
+  margin: 0 0 0.45rem;
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--olive-deep);
+}
+
+.app-dialog-message {
+  margin: 0;
+  color: var(--ink);
+  line-height: 1.55;
+  white-space: pre-line;
+  font-size: 0.98rem;
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1.15rem;
+}
+
+.app-dialog-actions .btn-primary,
+.app-dialog-actions .btn-accent,
+.app-dialog-actions .btn-danger {
+  min-width: 0;
+  font-size: 0.95rem;
+  padding: 0.55rem 1.1rem;
+}
+
+@keyframes app-dialog-fade {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes app-dialog-pop {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .app-dialog-backdrop,
+  .app-dialog {
+    animation: none;
+  }
 }
 
 .row-suspended td {
@@ -737,6 +868,88 @@ textarea {
   font-weight: 500;
   font-size: 0.78rem;
   color: var(--ink-soft);
+}
+
+.settings-accordion {
+  padding: 0;
+  overflow: hidden;
+}
+
+.settings-accordion-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.15rem;
+  cursor: pointer;
+  list-style: none;
+  user-select: none;
+}
+
+.settings-accordion-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-accordion-summary::after {
+  content: "";
+  width: 0.45rem;
+  height: 0.45rem;
+  border-inline-end: 2px solid var(--olive-deep);
+  border-bottom: 2px solid var(--olive-deep);
+  transform: rotate(45deg);
+  transition: transform 0.15s ease;
+  flex: 0 0 auto;
+  opacity: 0.7;
+}
+
+.settings-accordion[open] > .settings-accordion-summary::after {
+  transform: rotate(225deg);
+}
+
+.settings-accordion-heading {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.settings-accordion-title {
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--olive-deep);
+}
+
+.settings-accordion-hint {
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--ink-soft);
+}
+
+.settings-accordion-body {
+  padding: 0 1.15rem 1.15rem;
+  border-top: 1px solid var(--line);
+}
+
+.settings-accordion-body > h2:first-child {
+  display: none;
+}
+
+.invite-link-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  align-items: center;
+  margin-top: 0.35rem;
+}
+
+.invite-link-row code {
+  flex: 1 1 12rem;
+  font-size: 0.8rem;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(63, 90, 50, 0.06);
+  border: 1px solid var(--line);
+  overflow-wrap: anywhere;
 }
 
 .import-panel {
@@ -1119,4 +1332,273 @@ textarea {
     grid-template-columns: 5.5rem 1fr;
     min-width: 520px;
   }
+}
+
+/* Off-screen printable schedule sheet for PDF export */
+.schedule-pdf-mount {
+  position: fixed;
+  left: -12000px;
+  top: 0;
+  width: 794px;
+  pointer-events: none;
+  z-index: -1;
+}
+
+.schedule-pdf-sheet {
+  width: 794px;
+  box-sizing: border-box;
+  padding: 36px 40px 28px;
+  background: #fff;
+  color: #1c2418;
+  font-family: var(--font-heebo), "Heebo", Arial, sans-serif;
+}
+
+.schedule-pdf-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 1.5rem;
+  padding-bottom: 1rem;
+  border-bottom: 2px solid #3f5a32;
+  margin-bottom: 1.25rem;
+}
+
+.schedule-pdf-kicker {
+  margin: 0 0 0.2rem;
+  color: #b85c38;
+  font-weight: 700;
+  font-size: 0.85rem;
+}
+
+.schedule-pdf-header h1 {
+  margin: 0;
+  font-size: 1.85rem;
+  color: #2c3f23;
+}
+
+.schedule-pdf-sub {
+  margin: 0.35rem 0 0;
+  color: #4a5543;
+  font-size: 1rem;
+}
+
+.schedule-pdf-meta {
+  display: flex;
+  gap: 0.75rem;
+  align-items: stretch;
+}
+
+.schedule-pdf-meta > div {
+  min-width: 4.5rem;
+  padding: 0.55rem 0.7rem;
+  border: 1px solid rgba(44, 63, 35, 0.15);
+  border-radius: 12px;
+  text-align: center;
+  background: #f7f4ec;
+}
+
+.schedule-pdf-meta span {
+  display: block;
+  font-size: 0.75rem;
+  color: #4a5543;
+}
+
+.schedule-pdf-meta strong {
+  display: block;
+  font-size: 1.35rem;
+  margin-top: 0.15rem;
+  color: #2c3f23;
+}
+
+.schedule-pdf-timeline,
+.schedule-pdf-missions {
+  margin-top: 1.1rem;
+}
+
+.schedule-pdf-timeline h2,
+.schedule-pdf-missions h2 {
+  margin: 0 0 0.65rem;
+  font-size: 1.05rem;
+  color: #2c3f23;
+}
+
+.schedule-pdf-timeline-hours {
+  position: relative;
+  height: 1.1rem;
+  margin: 0 0 0.35rem 7.5rem;
+  color: #4a5543;
+  font-size: 0.7rem;
+}
+
+.schedule-pdf-timeline-hours span {
+  position: absolute;
+  transform: translateX(-50%);
+}
+
+.schedule-pdf-timeline-row {
+  display: grid;
+  grid-template-columns: 7.5rem 1fr;
+  gap: 0.5rem;
+  align-items: center;
+  margin-bottom: 0.35rem;
+}
+
+.schedule-pdf-timeline-label {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.82rem;
+  color: #4a5543;
+}
+
+.schedule-pdf-swatch {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 3px;
+  display: inline-block;
+  flex-shrink: 0;
+  vertical-align: middle;
+  margin-inline-end: 0.35rem;
+}
+
+.schedule-pdf-timeline-track {
+  position: relative;
+  height: 1.55rem;
+  border-radius: 8px;
+  background: rgba(63, 90, 50, 0.06);
+  border: 1px solid rgba(44, 63, 35, 0.1);
+  overflow: hidden;
+}
+
+.schedule-pdf-timeline-bar {
+  position: absolute;
+  top: 0.15rem;
+  bottom: 0.15rem;
+  border-radius: 6px;
+  color: #fff;
+  font-size: 0.65rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  padding: 0 0.3rem;
+  overflow: hidden;
+  white-space: nowrap;
+}
+
+.schedule-pdf-mission {
+  border: 1px solid rgba(44, 63, 35, 0.14);
+  border-radius: 12px;
+  padding: 0.75rem 0.85rem;
+  margin-bottom: 0.55rem;
+  background: #fcfbf7;
+  break-inside: avoid;
+}
+
+.schedule-pdf-mission header {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.45rem;
+}
+
+.schedule-pdf-mission h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  color: #1c2418;
+}
+
+.schedule-pdf-mission p {
+  margin: 0.2rem 0 0;
+  color: #4a5543;
+  font-size: 0.85rem;
+}
+
+.schedule-pdf-mission-time {
+  color: #4a5543;
+  font-size: 0.85rem;
+  white-space: nowrap;
+}
+
+.schedule-pdf-mission ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 0.3rem;
+}
+
+.schedule-pdf-mission li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.65rem;
+  align-items: baseline;
+  padding: 0.35rem 0.5rem;
+  border-radius: 8px;
+  background: rgba(63, 90, 50, 0.08);
+  font-size: 0.9rem;
+}
+
+.schedule-pdf-mission li span {
+  color: #4a5543;
+  font-size: 0.8rem;
+}
+
+.schedule-pdf-empty {
+  margin: 0;
+  color: #8b2e2e;
+  font-size: 0.9rem;
+}
+
+.schedule-pdf-footer {
+  margin-top: 1.25rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid rgba(44, 63, 35, 0.12);
+  color: #4a5543;
+  font-size: 0.78rem;
+}
+
+.publish-share-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 85;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(28, 36, 24, 0.45);
+  backdrop-filter: blur(3px);
+}
+
+.publish-share-dialog {
+  width: min(440px, 100%);
+  padding: 1.25rem 1.35rem 1.15rem;
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: var(--card);
+  box-shadow: 0 18px 48px rgba(28, 36, 24, 0.22);
+}
+
+.publish-share-dialog h2 {
+  margin: 0 0 0.4rem;
+  font-size: 1.2rem;
+  color: var(--olive-deep);
+}
+
+.publish-share-dialog p {
+  margin: 0;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.publish-share-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-top: 1.1rem;
+  justify-content: flex-end;
+}
+
+.publish-share-actions .btn-primary,
+.publish-share-actions .btn-accent {
+  min-width: 0;
+  font-size: 0.95rem;
+  padding: 0.55rem 1.1rem;
 }

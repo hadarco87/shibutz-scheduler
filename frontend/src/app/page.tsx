@@ -1,7 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { useConfirm } from "@/components/ConfirmDialog";
+import { SchedulePdfSheet } from "@/components/SchedulePdfSheet";
 import { useAuth } from "@/lib/auth";
 import {
   api,
@@ -15,6 +17,12 @@ import {
   ReplacementCandidate,
 } from "@/lib/api";
 import { routineShiftsForWindow, resolveStaffingForStart, windowShiftsForRange } from "@/lib/routine";
+import {
+  downloadBlob,
+  elementToPdfBlob,
+  schedulePdfFilename,
+  sharePdfViaWhatsApp,
+} from "@/lib/schedulePdf";
 
 function formatRange(start: string, end: string) {
   const s = new Date(start);
@@ -97,13 +105,18 @@ function pctInDay(dayStart: Date, dayEnd: Date, t: Date) {
 }
 
 export default function HomePage() {
-  const { token } = useAuth();
+  const { token, user } = useAuth();
+  const confirm = useConfirm();
+  const pdfRef = useRef<HTMLDivElement>(null);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
   const [people, setPeople] = useState<Person[]>([]);
   const [missionTypes, setMissionTypes] = useState<MissionType[]>([]);
   const [result, setResult] = useState<SchedulingResult | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [publishShareOpen, setPublishShareOpen] = useState(false);
+  const [autoPdfAfterPublish, setAutoPdfAfterPublish] = useState(false);
   const [replaceFor, setReplaceFor] = useState<number | null>(null);
   const [replacePersonId, setReplacePersonId] = useState<number | "">("");
   const [replaceCandidates, setReplaceCandidates] = useState<
@@ -225,11 +238,13 @@ export default function HomePage() {
     if (!token || !schedule || schedule.status !== "draft") return;
     const existing = schedule.missions.filter((m) => m.mission_type_id === mt.id);
     if (existing.length) {
-      if (
-        !confirm(
-          `להסיר את «${mt.name}» מחלון השיבוץ (${existing.length} מופעים)?`
-        )
-      ) {
+      const ok = await confirm({
+        title: "הסרת משימה מהחלון",
+        message: `להסיר את «${mt.name}» מחלון השיבוץ (${existing.length} מופעים)?`,
+        confirmLabel: "הסר",
+        tone: "danger",
+      });
+      if (!ok) {
         return;
       }
       setBusy(true);
@@ -301,11 +316,12 @@ export default function HomePage() {
     if (!token) return null;
     if (!opts?.silent && schedule && schedule.status === "draft") {
       const label = which === "today" ? "היום" : "מחר";
-      if (
-        !confirm(
-          `ליצור חלון שיבוץ חדש ל${label}? הטיוטה הנוכחית תישאר; החלון החדש יהפוך לפעיל.`
-        )
-      ) {
+      const ok = await confirm({
+        title: "חלון שיבוץ חדש",
+        message: `ליצור חלון שיבוץ חדש ל${label}?\nהטיוטה הנוכחית תישאר; החלון החדש יהפוך לפעיל.`,
+        confirmLabel: "צור חלון",
+      });
+      if (!ok) {
         return null;
       }
     }
@@ -404,7 +420,13 @@ export default function HomePage() {
 
   async function onPublish() {
     if (!token || !schedule) return;
-    if (!confirm("לאשר ולפרסם את השיבוץ? פעולה זו תעדכן את מדד העומס.")) return;
+    const ok = await confirm({
+      title: "פרסום שיבוץ",
+      message: "לאשר ולפרסם את השיבוץ?\nפעולה זו תעדכן את מדד העומס.",
+      confirmLabel: "פרסם",
+      tone: "accent",
+    });
+    if (!ok) return;
     setBusy(true);
     setError("");
     try {
@@ -413,12 +435,72 @@ export default function HomePage() {
       setResult(null);
       setAfterPreview(null);
       setAfterSelected({});
+      setPublishShareOpen(true);
+      setAutoPdfAfterPublish(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "פרסום נכשל");
     } finally {
       setBusy(false);
     }
   }
+
+  async function buildPdfBlob(): Promise<Blob> {
+    if (!schedule) throw new Error("אין שיבוץ לייצוא");
+    await new Promise((r) => window.requestAnimationFrame(() => r(null)));
+    await new Promise((r) => window.setTimeout(r, 30));
+    const el = pdfRef.current;
+    if (!el) throw new Error("לא ניתן להפיק PDF כרגע");
+    return elementToPdfBlob(el);
+  }
+
+  async function buildAndDownloadPdf() {
+    if (!schedule) return;
+    setPdfBusy(true);
+    setError("");
+    try {
+      const blob = await buildPdfBlob();
+      const name = schedulePdfFilename(
+        user?.company_name || "pluga",
+        schedule.window_start
+      );
+      downloadBlob(blob, name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "הפקת PDF נכשלה");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
+  async function sharePublishedPdf() {
+    if (!schedule) return;
+    setPdfBusy(true);
+    setError("");
+    try {
+      const blob = await buildPdfBlob();
+      const name = schedulePdfFilename(
+        user?.company_name || "pluga",
+        schedule.window_start
+      );
+      const day = new Date(schedule.window_start).toLocaleDateString("he-IL");
+      await sharePdfViaWhatsApp(
+        blob,
+        name,
+        `שיבוץ ${user?.company_name || "הפלוגה"} ל־${day}`
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "שיתוף נכשל");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!autoPdfAfterPublish) return;
+    if (!schedule || schedule.status !== "published") return;
+    setAutoPdfAfterPublish(false);
+    void buildAndDownloadPdf();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoPdfAfterPublish, schedule]);
 
   async function toggleAfterCandidate(c: AfterCandidate) {
     if (!schedule) return;
@@ -527,6 +609,9 @@ export default function HomePage() {
       a.name.localeCompare(b.name, "he")
     );
   }, [missionsSorted, schedule]);
+
+  const includePdfTimeline =
+    timelineRows.length > 0 && timelineRows.length <= 8;
 
   const dayBounds = useMemo(() => {
     if (!schedule) return null;
@@ -659,6 +744,26 @@ export default function HomePage() {
                 ) : null}
               </>
             )}
+            {schedule?.status === "published" ? (
+              <>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  disabled={pdfBusy}
+                  onClick={() => void buildAndDownloadPdf()}
+                >
+                  {pdfBusy ? "מכין PDF…" : "הורד PDF"}
+                </button>
+                <button
+                  className="btn btn-accent"
+                  type="button"
+                  disabled={pdfBusy}
+                  onClick={() => void sharePublishedPdf()}
+                >
+                  שתף בוואטסאפ
+                </button>
+              </>
+            ) : null}
           </div>
         </div>
 
@@ -726,7 +831,7 @@ export default function HomePage() {
         {result?.conflicts?.length ? (
           <div className="alert alert-danger">
             <strong>קונפליקטים שלא נפתרו:</strong>
-            <ul style={{ margin: "0.4rem 0 0", paddingInlineStart: "1.2rem" }}>
+            <ul className="conflict-list">
               {result.conflicts.map((c, i) => (
                 <li key={`${c.mission_id}-${i}`}>{c.message}</li>
               ))}
@@ -868,8 +973,12 @@ export default function HomePage() {
                 const assigned = schedule.assignments.filter(
                   (a) => a.mission_id === m.id
                 );
+                const understaffed = assigned.length < m.personnel_count;
                 return (
-                  <article key={m.id} className="mission-card">
+                  <article
+                    key={m.id}
+                    className={`mission-card${understaffed ? " understaffed" : ""}`}
+                  >
                     <header>
                       <div>
                         <h3>
@@ -884,8 +993,10 @@ export default function HomePage() {
                           />
                           {m.name}
                         </h3>
-                        <div className="time">
-                          קושי {m.difficulty_weight}/5 · {m.personnel_count} אנשים
+                        <div className={`time${understaffed ? " understaffed-label" : ""}`}>
+                          קושי {m.difficulty_weight}/5 · {assigned.length}/
+                          {m.personnel_count} אנשים
+                          {understaffed ? " · חסר איוש" : ""}
                         </div>
                       </div>
                       <div className="time">
@@ -896,23 +1007,45 @@ export default function HomePage() {
                       {assigned.length === 0 ? (
                         <span style={{ color: "var(--danger)" }}>לא מאויש</span>
                       ) : (
-                        assigned.map((a) => (
-                          <span
-                            key={a.id}
-                            className={`chip ${a.is_manual ? "manual" : ""}`}
-                          >
-                            {a.person_name}
-                            {schedule.status === "draft" ? (
-                              <button
-                                className="btn btn-ghost btn-small"
-                                type="button"
-                                onClick={() => openReplace(a.id)}
-                              >
-                                החלף
-                              </button>
-                            ) : null}
-                          </span>
-                        ))
+                        assigned.map((a) => {
+                          const meta = [
+                            a.person_role_name,
+                            (a.person_qualification_names || []).join(", ") || null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ");
+                          const slotNeed = [
+                            a.slot_role_name ? `תפקיד: ${a.slot_role_name}` : null,
+                            a.slot_qualification_name
+                              ? `פק״ל נדרש: ${a.slot_qualification_name}`
+                              : null,
+                          ]
+                            .filter(Boolean)
+                            .join(" · ");
+                          return (
+                            <span
+                              key={a.id}
+                              className={`chip chip-person ${a.is_manual ? "manual" : ""}`}
+                              title={slotNeed || undefined}
+                            >
+                              <span className="chip-text">
+                                <strong>{a.person_name}</strong>
+                                {meta ? (
+                                  <span className="chip-meta">{meta}</span>
+                                ) : null}
+                              </span>
+                              {schedule.status === "draft" ? (
+                                <button
+                                  className="btn btn-ghost btn-small"
+                                  type="button"
+                                  onClick={() => openReplace(a.id)}
+                                >
+                                  החלף
+                                </button>
+                              ) : null}
+                            </span>
+                          );
+                        })
                       )}
                     </div>
                     {replaceFor && assigned.some((a) => a.id === replaceFor) ? (
@@ -1090,6 +1223,65 @@ export default function HomePage() {
             שמור בחירת אפטר לטיוטה
           </button>
         </section>
+      ) : null}
+
+      {schedule ? (
+        <div className="schedule-pdf-mount" aria-hidden>
+          <SchedulePdfSheet
+            ref={pdfRef}
+            schedule={schedule}
+            companyName={user?.company_name || "הפלוגה"}
+            timelineRows={timelineRows}
+            includeTimeline={includePdfTimeline}
+          />
+        </div>
+      ) : null}
+
+      {publishShareOpen ? (
+        <div
+          className="publish-share-backdrop"
+          role="presentation"
+          onClick={() => setPublishShareOpen(false)}
+        >
+          <div
+            className="publish-share-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="publish-share-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="publish-share-title">השיבוץ פורסם</h2>
+            <p>
+              קובץ PDF של שיבוץ הפלוגה מוכן. אפשר להוריד שוב או לשתף בוואטסאפ
+              {includePdfTimeline ? " (כולל ציר זמן)" : ""}.
+            </p>
+            <div className="publish-share-actions">
+              <button
+                className="btn btn-ghost btn-small"
+                type="button"
+                onClick={() => setPublishShareOpen(false)}
+              >
+                סגור
+              </button>
+              <button
+                className="btn btn-primary btn-small"
+                type="button"
+                disabled={pdfBusy}
+                onClick={() => void buildAndDownloadPdf()}
+              >
+                {pdfBusy ? "…" : "הורד PDF"}
+              </button>
+              <button
+                className="btn btn-accent btn-small"
+                type="button"
+                disabled={pdfBusy}
+                onClick={() => void sharePublishedPdf()}
+              >
+                וואטסאפ
+              </button>
+            </div>
+          </div>
+        </div>
       ) : null}
     </AppShell>
   );

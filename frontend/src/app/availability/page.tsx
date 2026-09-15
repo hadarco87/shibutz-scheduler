@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { useAuth } from "@/lib/auth";
 import { api, Leave, Person, RecurringRestriction, Restriction } from "@/lib/api";
 
@@ -28,6 +29,7 @@ function kindLabel(kind: string, interval: number, weekdays?: string | null) {
 
 export default function AvailabilityPage() {
   const { token } = useAuth();
+  const confirm = useConfirm();
   const [people, setPeople] = useState<Person[]>([]);
   const [leave, setLeave] = useState<Leave[]>([]);
   const [restrictions, setRestrictions] = useState<Restriction[]>([]);
@@ -376,12 +378,13 @@ export default function AvailabilityPage() {
                     type="button"
                     onClick={async () => {
                       if (!token) return;
-                      if (
-                        !confirm(
-                          `למחוק חופשה של ${nameOf(l.person_id)}?`
-                        )
-                      )
-                        return;
+                      const ok = await confirm({
+                        title: "מחיקת חופשה",
+                        message: `למחוק חופשה של ${nameOf(l.person_id)}?`,
+                        confirmLabel: "מחק",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
                       await api.deleteLeave(token, l.id);
                       await refresh();
                     }}
@@ -420,12 +423,13 @@ export default function AvailabilityPage() {
                     type="button"
                     onClick={async () => {
                       if (!token) return;
-                      if (
-                        !confirm(
-                          `למחוק מגבלה של ${nameOf(r.person_id)} (${r.restriction_type})?`
-                        )
-                      )
-                        return;
+                      const ok = await confirm({
+                        title: "מחיקת מגבלה",
+                        message: `למחוק מגבלה של ${nameOf(r.person_id)} (${r.restriction_type})?`,
+                        confirmLabel: "מחק",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
                       await api.deleteRestriction(token, r.id);
                       await refresh();
                     }}
@@ -466,12 +470,13 @@ export default function AvailabilityPage() {
                     type="button"
                     onClick={async () => {
                       if (!token) return;
-                      if (
-                        !confirm(
-                          `למחוק מגבלה רוטינית של ${nameOf(r.person_id)} (${r.restriction_type})?`
-                        )
-                      )
-                        return;
+                      const ok = await confirm({
+                        title: "מחיקת מגבלה רוטינית",
+                        message: `למחוק מגבלה רוטינית של ${nameOf(r.person_id)} (${r.restriction_type})?`,
+                        confirmLabel: "מחק",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
                       await api.deleteRecurringRestriction(token, r.id);
                       await refresh();
                     }}

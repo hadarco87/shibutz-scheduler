@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { useConfirm } from "@/components/ConfirmDialog";
 import { useAuth } from "@/lib/auth";
 import {
   api,
@@ -52,6 +53,7 @@ function recurringKindLabel(
 
 export default function PeoplePage() {
   const { token } = useAuth();
+  const confirm = useConfirm();
   const [people, setPeople] = useState<Person[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [quals, setQuals] = useState<Qualification[]>([]);
@@ -233,10 +235,19 @@ export default function PeoplePage() {
   async function toggleSuspend(p: Person) {
     if (!token) return;
     const nextActive = !p.is_active;
-    const ok = window.confirm(
+    const ok = await confirm(
       nextActive
-        ? `להפעיל מחדש את ${p.full_name}? יוכל להיכנס שוב לשיבוץ.`
-        : `להשהות את ${p.full_name}?\n\nמושעה לא ייכנס לשיבוץ חדש. היסטוריה נשמרת.`
+        ? {
+            title: "הפעלה מחדש",
+            message: `להפעיל מחדש את ${p.full_name}?\nיוכל להיכנס שוב לשיבוץ.`,
+            confirmLabel: "הפעל",
+          }
+        : {
+            title: "השהיית חייל",
+            message: `להשהות את ${p.full_name}?\nמושעה לא ייכנס לשיבוץ חדש. היסטוריה נשמרת.`,
+            confirmLabel: "השהה",
+            tone: "accent",
+          }
     );
     if (!ok) return;
     setError("");
@@ -252,17 +263,23 @@ export default function PeoplePage() {
 
   async function deletePerson(p: Person) {
     if (!token) return;
-    const ok = window.confirm(
-      `מחיקה לצמיתות של ${p.full_name}\n\n` +
-        `אזהרה חזקה: המחיקה בלתי הפיכה.\n` +
+    const ok = await confirm({
+      title: "מחיקה לצמיתות",
+      message:
+        `למחוק את ${p.full_name}?\n\n` +
+        `אזהרה: המחיקה בלתי הפיכה.\n` +
         `יימחקו גם שיבוצים, עומס, חופשות ומגבלות הקשורים אליו.\n` +
-        `להשהייה (בלי למחוק היסטוריה) השתמשו ב«השהה».\n\n` +
-        `להמשיך במחיקה?`
-    );
+        `להשהייה (בלי למחוק היסטוריה) השתמשו ב«השהה».`,
+      confirmLabel: "המשך למחיקה",
+      tone: "danger",
+    });
     if (!ok) return;
-    const ok2 = window.confirm(
-      `אישור אחרון: למחוק לצמיתות את ${p.full_name}? לא ניתן לשחזר.`
-    );
+    const ok2 = await confirm({
+      title: "אישור אחרון",
+      message: `למחוק לצמיתות את ${p.full_name}?\nלא ניתן לשחזר.`,
+      confirmLabel: "מחק לצמיתות",
+      tone: "danger",
+    });
     if (!ok2) return;
     setError("");
     try {
@@ -275,7 +292,6 @@ export default function PeoplePage() {
       try {
         await refresh();
       } catch (refreshErr) {
-        // Person already removed locally; surface refresh issues without undoing UI.
         setError(
           refreshErr instanceof Error
             ? refreshErr.message

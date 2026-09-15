@@ -114,6 +114,26 @@ class User(Base, TimestampMixin):
     company: Mapped["Company"] = relationship(back_populates="users")
 
 
+class CompanyInvite(Base, TimestampMixin):
+    """Pending invitation to join an existing company with full permissions."""
+
+    __tablename__ = "company_invites"
+    __table_args__ = (
+        UniqueConstraint("company_id", "email", name="uq_company_invite_email"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    token: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    invited_by_id: Mapped[int] = mapped_column(ForeignKey("users.id"), nullable=False)
+    accepted_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    revoked_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+
+    company: Mapped["Company"] = relationship()
+    invited_by: Mapped["User"] = relationship(foreign_keys=[invited_by_id])
+
+
 class Role(Base, TimestampMixin):
     __tablename__ = "roles"
     __table_args__ = (UniqueConstraint("company_id", "name", name="uq_role_company_name"),)

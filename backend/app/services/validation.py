@@ -17,6 +17,7 @@ from app.models import (
     LeavePeriod,
     Mission,
     Person,
+    Qualification,
     Restriction,
     Role,
     RoleCapability,
@@ -246,27 +247,34 @@ def validate_assignment(
         )
 
     if required_role_id and not role_can_fulfill(db, person.role_id, required_role_id):
+        role = db.get(Role, required_role_id)
+        role_name = role.name if role else str(required_role_id)
         violations.append(
             Violation(
                 "hard",
                 "role",
-                f"{person.full_name} אינו יכול למלא את התפקיד הנדרש",
+                f"{person.full_name} אינו יכול למלא את התפקיד «{role_name}»",
                 mission.id,
                 person.id,
-                {"required_role_id": required_role_id},
+                {"required_role_id": required_role_id, "required_role_name": role_name},
             )
         )
 
     if required_qualification_id:
         if required_qualification_id not in person_qualification_ids(person):
+            qual = db.get(Qualification, required_qualification_id)
+            qual_name = qual.name if qual else str(required_qualification_id)
             violations.append(
                 Violation(
                     "hard",
                     "qualification",
-                    f"{person.full_name} חסר פק\"ל נדרש",
+                    f"{person.full_name} חסר פק״ל «{qual_name}»",
                     mission.id,
                     person.id,
-                    {"required_qualification_id": required_qualification_id},
+                    {
+                        "required_qualification_id": required_qualification_id,
+                        "required_qualification_name": qual_name,
+                    },
                 )
             )
 

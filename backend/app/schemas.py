@@ -36,6 +36,40 @@ class RegisterRequest(BaseModel):
     company_name: str = Field(min_length=1, max_length=200)
 
 
+class RegisterInviteRequest(BaseModel):
+    token: str = Field(min_length=8, max_length=128)
+    email: EmailStr
+    password: str = Field(min_length=8, max_length=128)
+    full_name: str = Field(min_length=1, max_length=200)
+
+
+class InvitePreviewOut(BaseModel):
+    company_name: str
+    email: str
+    invited_by_name: Optional[str] = None
+
+
+class CompanyInviteCreate(BaseModel):
+    email: EmailStr
+
+
+class CompanyInviteOut(ORMModel):
+    id: int
+    email: str
+    token: str
+    created_at: datetime
+    accepted_at: Optional[datetime] = None
+    invited_by_name: Optional[str] = None
+
+
+class CompanyMemberOut(ORMModel):
+    id: int
+    email: EmailStr
+    full_name: str
+    role: UserRole
+    is_active: bool
+
+
 class UserOut(ORMModel):
     id: int
     email: EmailStr
@@ -450,6 +484,10 @@ class AssignmentOut(ORMModel):
     difficulty_at_assignment: float
     person_name: Optional[str] = None
     mission_name: Optional[str] = None
+    person_role_name: Optional[str] = None
+    person_qualification_names: List[str] = Field(default_factory=list)
+    slot_role_name: Optional[str] = None
+    slot_qualification_name: Optional[str] = None
 
 
 class AssignmentReplace(BaseModel):

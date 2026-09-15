@@ -23,6 +23,8 @@ from app.models import (
     MissionTypeRequirement,
     MissionTypeStaffingBand,
     Person,
+    Qualification,
+    Role,
     Schedule,
     ScheduleStatus,
     WorkloadEvent,
@@ -298,6 +300,54 @@ def _instantiate_window_type(
     return created
 
 
+def _format_mission_window(mission: Mission) -> str:
+    s = mission.start_at
+    e = mission.end_at
+    return (
+        f"{s.day}.{s.month} {s.hour:02d}:{s.minute:02d}"
+        f"–{e.day}.{e.month} {e.hour:02d}:{e.minute:02d}"
+    )
+
+
+def _slot_requirement_label(
+    slot: MissionRequirement,
+    role_names: Dict[int, str],
+    qual_names: Dict[int, str],
+) -> str:
+    parts: List[str] = []
+    if slot.role_id:
+        parts.append(f"תפקיד «{role_names.get(slot.role_id, str(slot.role_id))}»")
+    if slot.qualification_id:
+        parts.append(
+            f"פק״ל «{qual_names.get(slot.qualification_id, str(slot.qualification_id))}»"
+        )
+    if parts:
+        return " + ".join(parts)
+    if slot.label:
+        return str(slot.label)
+    return "איוש כללי"
+
+
+def _pick_slot_failure_example(
+    hard_violations: List[Violation],
+    *,
+    required_role_id: Optional[int],
+    required_qualification_id: Optional[int],
+) -> Optional[Violation]:
+    if not hard_violations:
+        return None
+    preferred_codes = []
+    if required_qualification_id:
+        preferred_codes.append("qualification")
+    if required_role_id:
+        preferred_codes.append("role")
+    for code in preferred_codes:
+        for v in hard_violations:
+            if v.code == code:
+                return v
+    return hard_violations[0]
+
+
 def _expand_slots(mission: Mission) -> List[MissionRequirement]:
     slots: List[MissionRequirement] = []
     for req in mission.requirements:
@@ -348,6 +398,16 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
     workload = current_workload_map(db, schedule.company_id)
     after_counts = after_count_map(db, schedule.company_id, schedule.window_start)
     missions_by_id = {m.id: m for m in missions}
+    role_names = {
+        r.id: r.name
+        for r in db.query(Role).filter(Role.company_id == schedule.company_id).all()
+    }
+    qual_names = {
+        q.id: q.name
+        for q in db.query(Qualification)
+        .filter(Qualification.company_id == schedule.company_id)
+        .all()
+    }
 
     assignments: List[Assignment] = []
     used_counts: Dict[int, int] = defaultdict(int)
@@ -360,7 +420,8 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
         for slot in slots:
             req_id = slot.id if getattr(slot, "id", None) else None
             candidates: List[Tuple[float, Person, ValidationResult]] = []
-            exclusion_notes: List[str] = []
+            slot_related_examples: List[str] = []
+            other_examples: List[str] = []
 
             for person in people:
                 result = validate_assignment(
@@ -375,9 +436,24 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
                 )
                 if not result.ok:
                     if result.hard_violations:
-                        exclusion_notes.append(
-                            f"{person.full_name}: {result.hard_violations[0].message}"
+                        picked = _pick_slot_failure_example(
+                            result.hard_violations,
+                            required_role_id=slot.role_id,
+                            required_qualification_id=slot.qualification_id,
                         )
+                        if picked:
+                            note = picked.message
+                            if picked.code in ("qualification", "role") and (
+                                (
+                                    slot.qualification_id
+                                    and picked.code == "qualification"
+                                )
+                                or (slot.role_id and picked.code == "role")
+                            ):
+                                if len(slot_related_examples) < 2:
+                                    slot_related_examples.append(note)
+                            elif len(other_examples) < 2:
+                                other_examples.append(note)
                     continue
                 score = _candidate_score(
                     person,
@@ -388,13 +464,15 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
                 candidates.append((score, person, result))
 
             if not candidates:
-                msg = f"לא ניתן לאייש את {mission.name}"
-                if slot.role_id:
-                    msg += " (חסר תפקיד מתאים)"
-                if slot.qualification_id:
-                    msg += " (חסר פק\"ל מתאים)"
-                if exclusion_notes:
-                    msg += f". סיבה עיקרית: {exclusion_notes[0]}"
+                need = _slot_requirement_label(slot, role_names, qual_names)
+                when = _format_mission_window(mission)
+                msg = (
+                    f"לא ניתן לאייש את {mission.name} ({when}) — "
+                    f"חסרה משבצת: {need}."
+                )
+                examples = slot_related_examples or other_examples
+                if examples:
+                    msg += f" דוגמה: {examples[0]}"
                 conflicts.append(
                     Conflict(
                         mission_id=mission.id,

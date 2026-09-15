@@ -2,9 +2,13 @@
 
 import { FormEvent, Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
+import { useConfirm } from "@/components/ConfirmDialog";
+import { SettingsAccordion } from "@/components/SettingsAccordion";
 import { useAuth } from "@/lib/auth";
 import {
   api,
+  CompanyInvite,
+  CompanyMember,
   KanimRule,
   MissionType,
   MissionTypeRequirement,
@@ -38,6 +42,7 @@ type BandDraft = {
 
 export default function SettingsPage() {
   const { token } = useAuth();
+  const confirm = useConfirm();
   const [quals, setQuals] = useState<Qualification[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [missionTypes, setMissionTypes] = useState<MissionType[]>([]);
@@ -75,6 +80,11 @@ export default function SettingsPage() {
   const [kanimCount, setKanimCount] = useState(12);
   const [kanimDate, setKanimDate] = useState("");
   const [kanimNotes, setKanimNotes] = useState("");
+  const [members, setMembers] = useState<CompanyMember[]>([]);
+  const [invites, setInvites] = useState<CompanyInvite[]>([]);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [copiedInviteId, setCopiedInviteId] = useState<number | null>(null);
 
   const activeRoles = useMemo(() => roles.filter((r) => r.is_active), [roles]);
 
@@ -87,17 +97,75 @@ export default function SettingsPage() {
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [q, r, mt, kr] = await Promise.all([
+    const [q, r, mt, kr, mem, inv] = await Promise.all([
       api.qualifications(token),
       api.roles(token),
       api.missionTypes(token),
       api.kanimRules(token),
+      api.companyMembers(token),
+      api.companyInvites(token),
     ]);
     setQuals(q);
     setRoles(r);
     setMissionTypes(mt);
     setKanimRules(kr);
+    setMembers(mem);
+    setInvites(inv);
   }, [token]);
+
+  function inviteLink(tokenValue: string) {
+    if (typeof window === "undefined") return "";
+    return `${window.location.origin}/login?invite=${encodeURIComponent(tokenValue)}`;
+  }
+
+  async function copyInviteLink(inv: CompanyInvite) {
+    const link = inviteLink(inv.token);
+    try {
+      await navigator.clipboard.writeText(link);
+      setCopiedInviteId(inv.id);
+      window.setTimeout(() => setCopiedInviteId(null), 2000);
+    } catch {
+      setError("לא ניתן להעתיק ללוח — העתיקו ידנית מהקישור");
+    }
+  }
+
+  async function sendInvite(e: FormEvent) {
+    e.preventDefault();
+    if (!token || !inviteEmail.trim()) return;
+    setInviteBusy(true);
+    setError("");
+    setOk("");
+    try {
+      const created = await api.createCompanyInvite(token, inviteEmail.trim());
+      setInviteEmail("");
+      setOk(`הזמנה נוצרה ל־${created.email} — העתיקו את הקישור ושלחו`);
+      await refresh();
+      await copyInviteLink(created);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "יצירת הזמנה נכשלה");
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
+  async function revokeInvite(inv: CompanyInvite) {
+    if (!token) return;
+    const okConfirm = await confirm({
+      title: "ביטול הזמנה",
+      message: `לבטל את ההזמנה ל־${inv.email}?`,
+      confirmLabel: "בטל הזמנה",
+      tone: "danger",
+    });
+    if (!okConfirm) return;
+    setError("");
+    try {
+      await api.revokeCompanyInvite(token, inv.id);
+      setOk("ההזמנה בוטלה");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "ביטול נכשל");
+    }
+  }
 
   useEffect(() => {
     refresh().catch((e) => setError(e.message));
@@ -492,7 +560,99 @@ export default function SettingsPage() {
         {ok ? <div className="alert alert-ok">{ok}</div> : null}
       </section>
 
-      <section className="panel">
+      <SettingsAccordion
+        title="שיתוף צוות"
+        hint="הזמנת משתמשים לאותה פלוגה עם הרשאות מלאות"
+      >
+        <p style={{ color: "var(--ink-soft)", marginTop: "0.85rem" }}>
+          הזמינו במייל ושלחו קישור. מי שנרשם דרך הקישור מצטרף לפלוגה עם הרשאות
+          מלאות, ויכול גם להזמין אחרים.
+        </p>
+        <form className="form-grid" onSubmit={sendInvite} style={{ maxWidth: 520 }}>
+          <label>
+            אימייל להזמנה
+            <input
+              type="email"
+              value={inviteEmail}
+              onChange={(e) => setInviteEmail(e.target.value)}
+              placeholder="name@example.com"
+              required
+            />
+          </label>
+          <button className="btn btn-primary" type="submit" disabled={inviteBusy}>
+            {inviteBusy ? "…" : "צור הזמנה"}
+          </button>
+        </form>
+
+        <h3 style={{ marginBottom: "0.35rem" }}>חברי הפלוגה</h3>
+        <table className="table">
+          <thead>
+            <tr>
+              <th>שם</th>
+              <th>אימייל</th>
+              <th>סטטוס</th>
+            </tr>
+          </thead>
+          <tbody>
+            {members.map((m) => (
+              <tr key={m.id}>
+                <td>{m.full_name}</td>
+                <td>{m.email}</td>
+                <td>{m.is_active ? "פעיל" : "מושבת"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+
+        <h3 style={{ marginBottom: "0.35rem", marginTop: "1.25rem" }}>
+          הזמנות ממתינות
+        </h3>
+        {invites.length === 0 ? (
+          <p style={{ color: "var(--ink-soft)" }}>אין הזמנות פתוחות</p>
+        ) : (
+          <table className="table">
+            <thead>
+              <tr>
+                <th>אימייל</th>
+                <th>הוזמן על ידי</th>
+                <th>קישור</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {invites.map((inv) => (
+                <tr key={inv.id}>
+                  <td>{inv.email}</td>
+                  <td>{inv.invited_by_name || "—"}</td>
+                  <td>
+                    <div className="invite-link-row">
+                      <code>{inviteLink(inv.token)}</code>
+                      <button
+                        className="btn btn-ghost btn-small"
+                        type="button"
+                        onClick={() => copyInviteLink(inv)}
+                      >
+                        {copiedInviteId === inv.id ? "הועתק" : "העתק"}
+                      </button>
+                    </div>
+                  </td>
+                  <td>
+                    <button
+                      className="btn btn-danger-ghost btn-small"
+                      type="button"
+                      onClick={() => revokeInvite(inv)}
+                    >
+                      בטל
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </SettingsAccordion>
+
+      <SettingsAccordion title="תפקידים" hint="מי יכול למלא מה בשיבוץ">
         <h2 style={{ marginTop: 0 }}>תפקידים</h2>
         <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
           לדוגמה: חייל, מפקד, מפקד זוטר. אפשר גם להגדיר אילו תפקידים כל תפקיד יכול למלא
@@ -614,7 +774,13 @@ export default function SettingsPage() {
                     type="button"
                     onClick={async () => {
                       if (!token) return;
-                      if (!confirm(`למחוק את התפקיד «${role.name}»?`)) return;
+                      const ok = await confirm({
+                        title: "מחיקת תפקיד",
+                        message: `למחוק את התפקיד «${role.name}»?`,
+                        confirmLabel: "מחק",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
                       setError("");
                       setOk("");
                       try {
@@ -634,9 +800,9 @@ export default function SettingsPage() {
             ))}
           </tbody>
         </table>
-      </section>
+      </SettingsAccordion>
 
-      <section className="panel">
+      <SettingsAccordion title="פק״לים" hint="הסמכות מקצועיות לאיוש">
         <h2 style={{ marginTop: 0 }}>פק״לים</h2>
         <form className="form-grid" onSubmit={saveQualification} style={{ maxWidth: 480 }}>
           <label>
@@ -721,7 +887,13 @@ export default function SettingsPage() {
                     type="button"
                     onClick={async () => {
                       if (!token) return;
-                      if (!confirm(`למחוק את הפק״ל «${q.name}»?`)) return;
+                      const ok = await confirm({
+                        title: "מחיקת פק״ל",
+                        message: `למחוק את הפק״ל «${q.name}»?`,
+                        confirmLabel: "מחק",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
                       setError("");
                       setOk("");
                       try {
@@ -744,9 +916,9 @@ export default function SettingsPage() {
             ))}
           </tbody>
         </table>
-      </section>
+      </SettingsAccordion>
 
-      <section className="panel">
+      <SettingsAccordion title="קנים מינימליים במוצב" hint="רצפת איוש לפי יום">
         <h2 style={{ marginTop: 0 }}>קנים מינימליים במוצב</h2>
         <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
           מספר החיילים המינימלי שחייב להישאר במוצב. מכסת האפטר = כוח אדם פעיל −
@@ -821,7 +993,13 @@ export default function SettingsPage() {
                     type="button"
                     onClick={async () => {
                       if (!token) return;
-                      if (!confirm("למחוק את כלל הקנים?")) return;
+                      const ok = await confirm({
+                        title: "מחיקת כלל קנים",
+                        message: "למחוק את כלל הקנים?",
+                        confirmLabel: "מחק",
+                        tone: "danger",
+                      });
+                      if (!ok) return;
                       await api.deleteKanimRule(token, r.id);
                       await refresh();
                     }}
@@ -833,9 +1011,9 @@ export default function SettingsPage() {
             ))}
           </tbody>
         </table>
-      </section>
+      </SettingsAccordion>
 
-      <section className="panel">
+      <SettingsAccordion title="סוגי משימות (קטלוג)" hint="רוטינה, קושי ואיוש">
         <h2 style={{ marginTop: 0 }}>סוגי משימות (קטלוג)</h2>
         <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
           כאן מגדירים את סוגי המשימות הקבועים לפי הסדר: שם, קושי, מספר אנשים,
@@ -930,7 +1108,13 @@ export default function SettingsPage() {
                       type="button"
                       onClick={async () => {
                         if (!token) return;
-                        if (!confirm(`למחוק את סוג המשימה «${mt.name}»?`)) return;
+                        const ok = await confirm({
+                          title: "מחיקת סוג משימה",
+                          message: `למחוק את סוג המשימה «${mt.name}»?`,
+                          confirmLabel: "מחק",
+                          tone: "danger",
+                        });
+                        if (!ok) return;
                         setError("");
                         setOk("");
                         try {
@@ -1711,7 +1895,7 @@ export default function SettingsPage() {
             ))}
           </tbody>
         </table>
-      </section>
+      </SettingsAccordion>
     </AppShell>
   );
 }
