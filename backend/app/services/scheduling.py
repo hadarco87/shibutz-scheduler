@@ -365,16 +365,56 @@ def _expand_slots(mission: Mission) -> List[MissionRequirement]:
     return slots[: mission.personnel_count]
 
 
+def _role_seniority(role: Optional[Role]) -> int:
+    """Higher = scarcer leadership resource. Used to avoid wasting commanders/officers."""
+    if role is None:
+        return 0
+    name = (role.name or "").strip()
+    score = 0
+    if "קצין" in name:
+        score += 40
+    if any(token in name for token in ("מפקד", 'מ"פ', "מ״פ", "סמפ", "סמל״פ", 'סמל"פ')):
+        score += 25
+    if any(token in name for token in ("זוטר", 'מש"ק', "מש״ק", "סמל")):
+        score += 10
+    # Flexible roles that can cover many slots are treated as slightly scarcer.
+    try:
+        fulfill_count = len(role.can_fulfill or [])
+    except Exception:
+        fulfill_count = 0
+    if fulfill_count > 1:
+        score += min(15, (fulfill_count - 1) * 3)
+    return score
+
+
+def _overqualification_cost(person: Person, required_role_id: Optional[int]) -> float:
+    """Prefer exact-role matches; keep senior roles for senior slots only.
+
+    Lower is better (added into the candidate score).
+    """
+    seniority = _role_seniority(person.role)
+    if required_role_id is None:
+        # Open / qualification-only slot — prefer the least senior eligible person.
+        return float(seniority)
+    if person.role_id == required_role_id:
+        return 0.0
+    # Eligible via capability but overqualified (e.g. commander filling חייל).
+    return 12.0 + float(seniority)
+
+
 def _candidate_score(
     person: Person,
     workload: float,
     used_counts: Dict[int, int],
     after_count_30d: int = 0,
+    required_role_id: Optional[int] = None,
 ) -> float:
     # Lower is better. Prefer fewer recent afters even over workload fairness.
+    # Prefer soldiers over commanders/officers when the slot does not require them.
     return (
         after_count_30d * 1000
         + workload * 100
+        + _overqualification_cost(person, required_role_id) * 40
         + used_counts.get(person.id, 0) * 10
     )
 
@@ -460,6 +500,7 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
                     workload.get(person.id, 0.0),
                     used_counts,
                     after_counts.get(person.id, 0),
+                    required_role_id=slot.role_id,
                 )
                 candidates.append((score, person, result))
 
@@ -670,6 +711,7 @@ def list_replacement_candidates(
         )
 
     eligible: List[Tuple[Person, ValidationResult]] = []
+    required_role_id = req.role_id if req else None
     for person in load_people(db, schedule.company_id):
         if person.id == assignment.person_id:
             continue
@@ -680,13 +722,19 @@ def list_replacement_candidates(
             mission=mission,
             existing_assignments=others,
             missions_by_id=missions_by_id,
-            required_role_id=req.role_id if req else None,
+            required_role_id=required_role_id,
             required_qualification_id=req.qualification_id if req else None,
         )
         if result.ok:
             eligible.append((person, result))
 
-    eligible.sort(key=lambda x: x[0].full_name)
+    # Prefer soldiers over commanders when both are valid; then alphabetical.
+    eligible.sort(
+        key=lambda x: (
+            _overqualification_cost(x[0], required_role_id),
+            x[0].full_name,
+        )
+    )
     return eligible
 
 

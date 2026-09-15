@@ -572,3 +572,120 @@ def test_replacement_candidates_filter_by_role_and_availability(db, company_data
     assert "Sold A" not in names
     assert "Sold B" not in names
     assert "Cmd Only" in names
+
+
+def test_prefer_soldier_over_commander_for_soldier_slot(db, company_data):
+    """Do not waste commanders on slots that a soldier can fill."""
+    soldier = Person(
+        company_id=company_data["company"].id,
+        full_name="חייל זמין",
+        role_id=company_data["soldier"].id,
+    )
+    commander = Person(
+        company_id=company_data["company"].id,
+        full_name="מפקד זמין",
+        role_id=company_data["commander"].id,
+    )
+    db.add_all([soldier, commander])
+    db.flush()
+
+    mt = MissionType(
+        company_id=company_data["company"].id,
+        name="ש״ג",
+        difficulty_weight=2,
+        default_personnel_count=1,
+    )
+    db.add(mt)
+    db.flush()
+    schedule = Schedule(
+        company_id=company_data["company"].id,
+        window_start=datetime(2026, 9, 20, 0),
+        window_end=datetime(2026, 9, 21, 0),
+        status=ScheduleStatus.DRAFT,
+        created_by_id=company_data["user"].id,
+    )
+    db.add(schedule)
+    db.flush()
+    mission = Mission(
+        company_id=company_data["company"].id,
+        mission_type_id=mt.id,
+        name="ש״ג",
+        start_at=datetime(2026, 9, 20, 8),
+        end_at=datetime(2026, 9, 20, 12),
+        difficulty_weight=2,
+        personnel_count=1,
+        schedule_id=schedule.id,
+    )
+    db.add(mission)
+    db.flush()
+    db.add(
+        MissionRequirement(
+            mission_id=mission.id, role_id=company_data["soldier"].id, count=1
+        )
+    )
+    db.commit()
+
+    result = generate_schedule(db, schedule, company_data["user"].id)
+    db.commit()
+    assert result.status in ("success", "success_with_warnings")
+    assigned_ids = [a.person_id for a in result.schedule.assignments]
+    assert assigned_ids == [soldier.id]
+
+
+def test_prefer_soldier_on_open_qualification_slot(db, company_data):
+    """Qualification-only slots should prefer soldiers when both have the פק״ל."""
+    medic = company_data["medic"]
+    soldier = Person(
+        company_id=company_data["company"].id,
+        full_name="חייל חובש",
+        role_id=company_data["soldier"].id,
+    )
+    commander = Person(
+        company_id=company_data["company"].id,
+        full_name="מפקד חובש",
+        role_id=company_data["commander"].id,
+    )
+    db.add_all([soldier, commander])
+    db.flush()
+    db.add(PersonQualification(person_id=soldier.id, qualification_id=medic.id))
+    db.add(PersonQualification(person_id=commander.id, qualification_id=medic.id))
+    db.flush()
+
+    mt = MissionType(
+        company_id=company_data["company"].id,
+        name="פינוי",
+        difficulty_weight=3,
+        default_personnel_count=1,
+    )
+    db.add(mt)
+    db.flush()
+    schedule = Schedule(
+        company_id=company_data["company"].id,
+        window_start=datetime(2026, 9, 21, 0),
+        window_end=datetime(2026, 9, 22, 0),
+        status=ScheduleStatus.DRAFT,
+        created_by_id=company_data["user"].id,
+    )
+    db.add(schedule)
+    db.flush()
+    mission = Mission(
+        company_id=company_data["company"].id,
+        mission_type_id=mt.id,
+        name="פינוי",
+        start_at=datetime(2026, 9, 21, 10),
+        end_at=datetime(2026, 9, 21, 14),
+        difficulty_weight=3,
+        personnel_count=1,
+        schedule_id=schedule.id,
+    )
+    db.add(mission)
+    db.flush()
+    db.add(
+        MissionRequirement(mission_id=mission.id, qualification_id=medic.id, count=1)
+    )
+    db.commit()
+
+    result = generate_schedule(db, schedule, company_data["user"].id)
+    db.commit()
+    assigned_ids = [a.person_id for a in result.schedule.assignments]
+    assert assigned_ids == [soldier.id]

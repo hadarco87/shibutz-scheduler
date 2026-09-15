@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, Fragment, useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { useAuth } from "@/lib/auth";
@@ -91,6 +91,7 @@ export default function PeoplePage() {
   const [importBusy, setImportBusy] = useState(false);
   const [importMessage, setImportMessage] = useState("");
   const [importOpen, setImportOpen] = useState(false);
+  const [addOpen, setAddOpen] = useState(false);
 
   async function refresh() {
     if (!token) return;
@@ -221,6 +222,11 @@ export default function PeoplePage() {
   }
 
   function startEdit(p: Person) {
+    if (editingId === p.id) {
+      resetForm();
+      return;
+    }
+    setAddOpen(false);
     const { first, last } = splitFullName(p.full_name);
     setEditingId(p.id);
     setFirstName(first);
@@ -325,12 +331,159 @@ export default function PeoplePage() {
         await api.updatePerson(token, editingId, body);
       } else {
         await api.createPerson(token, body);
+        setAddOpen(false);
       }
       resetForm();
       await refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : "שגיאה");
     }
+  }
+
+  function renderPersonFormFields(mode: "create" | "edit") {
+    return (
+      <>
+        <div className="person-form-row">
+          <label>
+            שם פרטי
+            <input
+              value={firstName}
+              onChange={(e) => setFirstName(e.target.value)}
+              autoComplete="given-name"
+              required={!lastName.trim()}
+              placeholder="ישראל"
+            />
+          </label>
+          <label>
+            שם משפחה
+            <input
+              value={lastName}
+              onChange={(e) => setLastName(e.target.value)}
+              autoComplete="family-name"
+              required={!firstName.trim()}
+              placeholder="ישראלי"
+            />
+          </label>
+        </div>
+
+        <div className="person-form-row">
+          <label>
+            מספר אישי
+            <span className="field-optional">רשות</span>
+            <input
+              value={personalNumber}
+              onChange={(e) => setPersonalNumber(e.target.value)}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="לדוגמה 1234567"
+            />
+          </label>
+          <label>
+            טלפון
+            <span className="field-optional">רשות</span>
+            <input
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              type="tel"
+              autoComplete="tel"
+              placeholder="050-0000000"
+            />
+          </label>
+        </div>
+
+        <label>
+          תפקיד
+          <select
+            value={roleId}
+            onChange={(e) => setRoleId(Number(e.target.value))}
+            required
+          >
+            {roles.map((r) => (
+              <option key={r.id} value={r.id}>
+                {r.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div>
+          <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>
+            פק״לים
+          </div>
+          <div className="people-chips">
+            {quals.length === 0 ? (
+              <span style={{ color: "var(--ink-soft)", fontSize: "0.88rem" }}>
+                עדיין אין פק״לים — הוסיפו למטה
+              </span>
+            ) : (
+              quals.map((q) => (
+                <button
+                  key={q.id}
+                  type="button"
+                  className={`chip ${selectedQuals.includes(q.id) ? "manual" : ""}`}
+                  onClick={() => toggleId(selectedQuals, q.id, setSelectedQuals)}
+                >
+                  {q.name}
+                </button>
+              ))
+            )}
+          </div>
+          <div className="qual-add-row">
+            <input
+              value={newQualName}
+              onChange={(e) => setNewQualName(e.target.value)}
+              placeholder="פק״ל חדש (לדוגמה: חובש)"
+              aria-label="שם פק״ל חדש"
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  void addQualificationInline();
+                }
+              }}
+            />
+            <button
+              className="btn btn-ghost btn-small"
+              type="button"
+              disabled={qualBusy || !newQualName.trim()}
+              onClick={() => void addQualificationInline()}
+            >
+              {qualBusy ? "…" : "הוסף פק״ל"}
+            </button>
+          </div>
+        </div>
+        <div>
+          <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>
+            סוגי משימות מותרים בלבד (אופציונלי)
+          </div>
+          <div className="people-chips">
+            {missionTypes.map((mt) => (
+              <button
+                key={mt.id}
+                type="button"
+                className={`chip ${allowedTypes.includes(mt.id) ? "manual" : ""}`}
+                onClick={() => toggleId(allowedTypes, mt.id, setAllowedTypes)}
+              >
+                {mt.name}
+              </button>
+            ))}
+          </div>
+        </div>
+        <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+          <button className="btn btn-primary" type="submit">
+            {mode === "edit" ? "שמור שינויים" : "הוסף חייל"}
+          </button>
+          <button
+            className="btn btn-ghost"
+            type="button"
+            onClick={() => {
+              resetForm();
+              if (mode === "create") setAddOpen(false);
+            }}
+          >
+            ביטול
+          </button>
+        </div>
+      </>
+    );
   }
 
   function toggleId(list: number[], id: number, setter: (v: number[]) => void) {
@@ -579,151 +732,36 @@ export default function PeoplePage() {
           </div>
         </details>
 
-        <form className="form-grid person-form" onSubmit={onSubmit}>
-          <div className="person-form-head">
-            <h2 style={{ margin: 0, fontSize: "1.05rem" }}>
-              {editingId ? "עריכת חייל" : "הוספה ידנית"}
-            </h2>
-            {editingId ? (
-              <span className="person-form-editing">עריכה פעילה</span>
-            ) : null}
-          </div>
-
-          <div className="person-form-row">
-            <label>
-              שם פרטי
-              <input
-                value={firstName}
-                onChange={(e) => setFirstName(e.target.value)}
-                autoComplete="given-name"
-                required={!lastName.trim()}
-                placeholder="ישראל"
-              />
-            </label>
-            <label>
-              שם משפחה
-              <input
-                value={lastName}
-                onChange={(e) => setLastName(e.target.value)}
-                autoComplete="family-name"
-                required={!firstName.trim()}
-                placeholder="ישראלי"
-              />
-            </label>
-          </div>
-
-          <div className="person-form-row">
-            <label>
-              מספר אישי
-              <span className="field-optional">רשות</span>
-              <input
-                value={personalNumber}
-                onChange={(e) => setPersonalNumber(e.target.value)}
-                inputMode="numeric"
-                autoComplete="off"
-                placeholder="לדוגמה 1234567"
-              />
-            </label>
-            <label>
-              טלפון
-              <span className="field-optional">רשות</span>
-              <input
-                value={phone}
-                onChange={(e) => setPhone(e.target.value)}
-                type="tel"
-                autoComplete="tel"
-                placeholder="050-0000000"
-              />
-            </label>
-          </div>
-
-          <label>
-            תפקיד
-            <select
-              value={roleId}
-              onChange={(e) => setRoleId(Number(e.target.value))}
-              required
+        <details
+          className="import-details person-add-details"
+          open={addOpen}
+          onToggle={(e) => {
+            const open = (e.target as HTMLDetailsElement).open;
+            setAddOpen(open);
+            if (open) {
+              resetForm();
+            }
+          }}
+        >
+          <summary className="import-summary">
+            <span>הוספה ידנית</span>
+            <span className="import-summary-hint">שם · תפקיד · פק״לים</span>
+          </summary>
+          <div className="import-panel">
+            <form
+              className="form-grid person-form person-form-compact"
+              onSubmit={(e) => {
+                if (editingId) {
+                  e.preventDefault();
+                  return;
+                }
+                void onSubmit(e);
+              }}
             >
-              {roles.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <div>
-            <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>
-              פק״לים
-            </div>
-            <div className="people-chips">
-              {quals.length === 0 ? (
-                <span style={{ color: "var(--ink-soft)", fontSize: "0.88rem" }}>
-                  עדיין אין פק״לים — הוסיפו למטה
-                </span>
-              ) : (
-                quals.map((q) => (
-                  <button
-                    key={q.id}
-                    type="button"
-                    className={`chip ${selectedQuals.includes(q.id) ? "manual" : ""}`}
-                    onClick={() => toggleId(selectedQuals, q.id, setSelectedQuals)}
-                  >
-                    {q.name}
-                  </button>
-                ))
-              )}
-            </div>
-            <div className="qual-add-row">
-              <input
-                value={newQualName}
-                onChange={(e) => setNewQualName(e.target.value)}
-                placeholder="פק״ל חדש (לדוגמה: חובש)"
-                aria-label="שם פק״ל חדש"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    void addQualificationInline();
-                  }
-                }}
-              />
-              <button
-                className="btn btn-ghost btn-small"
-                type="button"
-                disabled={qualBusy || !newQualName.trim()}
-                onClick={() => void addQualificationInline()}
-              >
-                {qualBusy ? "…" : "הוסף פק״ל"}
-              </button>
-            </div>
+              {renderPersonFormFields("create")}
+            </form>
           </div>
-          <div>
-            <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>
-              סוגי משימות מותרים בלבד (אופציונלי)
-            </div>
-            <div className="people-chips">
-              {missionTypes.map((mt) => (
-                <button
-                  key={mt.id}
-                  type="button"
-                  className={`chip ${allowedTypes.includes(mt.id) ? "manual" : ""}`}
-                  onClick={() => toggleId(allowedTypes, mt.id, setAllowedTypes)}
-                >
-                  {mt.name}
-                </button>
-              ))}
-            </div>
-          </div>
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <button className="btn btn-primary" type="submit">
-              {editingId ? "שמור שינויים" : "הוסף חייל"}
-            </button>
-            {editingId ? (
-              <button className="btn btn-ghost" type="button" onClick={resetForm}>
-                ביטול
-              </button>
-            ) : null}
-          </div>
-        </form>
+        </details>
       </section>
 
       <section className="panel">
@@ -858,73 +896,94 @@ export default function PeoplePage() {
               </tr>
             ) : (
               filteredPeople.map((p) => (
-                <tr
-                  key={p.id}
-                  className={p.is_active ? undefined : "row-suspended"}
-                >
-                  <td>
-                    <strong>{p.full_name}</strong>
-                    {!p.is_active ? (
-                      <span className="status-pill status-suspended">מושעה</span>
-                    ) : null}
-                    {p.phone ? (
-                      <div style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
-                        {p.phone}
+                <Fragment key={p.id}>
+                  <tr className={p.is_active ? undefined : "row-suspended"}>
+                    <td>
+                      <strong>{p.full_name}</strong>
+                      {!p.is_active ? (
+                        <span className="status-pill status-suspended">מושעה</span>
+                      ) : null}
+                      {editingId === p.id ? (
+                        <div className="person-inline-edit-hint">עריכה מתחת</div>
+                      ) : null}
+                      {p.phone ? (
+                        <div style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
+                          {p.phone}
+                        </div>
+                      ) : null}
+                      {(p.after_count_30d || 0) > 0 ? (
+                        <div style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
+                          פורגן באפטר · {p.after_count_30d}× ב־30 ימים
+                          {p.last_after_end
+                            ? ` · עד ${new Date(p.last_after_end).toLocaleString("he-IL")}`
+                            : ""}
+                        </div>
+                      ) : null}
+                    </td>
+                    <td>{p.personal_number || "—"}</td>
+                    <td>{p.role_name}</td>
+                    <td>
+                      {p.qualification_ids
+                        .map((id) => quals.find((q) => q.id === id)?.name)
+                        .filter(Boolean)
+                        .join(", ") || "—"}
+                    </td>
+                    <td>
+                      {(p.allowed_mission_type_ids || []).length === 0
+                        ? "הכל"
+                        : p.allowed_mission_type_ids
+                            .map((id) => missionTypes.find((m) => m.id === id)?.name)
+                            .filter(Boolean)
+                            .join(", ")}
+                    </td>
+                    <td>{p.after_count_30d || 0}</td>
+                    <td>{renderAvailability(p.id)}</td>
+                    <td>
+                      <div className="row-actions">
+                        <button
+                          className={`btn btn-ghost btn-small${
+                            editingId === p.id ? " is-active-action" : ""
+                          }`}
+                          type="button"
+                          onClick={() => startEdit(p)}
+                        >
+                          {editingId === p.id ? "סגור" : "עריכה"}
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-small"
+                          type="button"
+                          onClick={() => toggleSuspend(p)}
+                        >
+                          {p.is_active ? "השהה" : "הפעל"}
+                        </button>
+                        <button
+                          className="btn btn-danger-ghost btn-small"
+                          type="button"
+                          onClick={() => deletePerson(p)}
+                        >
+                          מחק
+                        </button>
                       </div>
-                    ) : null}
-                    {(p.after_count_30d || 0) > 0 ? (
-                      <div style={{ color: "var(--ink-soft)", fontSize: "0.85rem" }}>
-                        פורגן באפטר · {p.after_count_30d}× ב־30 ימים
-                        {p.last_after_end
-                          ? ` · עד ${new Date(p.last_after_end).toLocaleString("he-IL")}`
-                          : ""}
-                      </div>
-                    ) : null}
-                  </td>
-                  <td>{p.personal_number || "—"}</td>
-                  <td>{p.role_name}</td>
-                  <td>
-                    {p.qualification_ids
-                      .map((id) => quals.find((q) => q.id === id)?.name)
-                      .filter(Boolean)
-                      .join(", ") || "—"}
-                  </td>
-                  <td>
-                    {(p.allowed_mission_type_ids || []).length === 0
-                      ? "הכל"
-                      : p.allowed_mission_type_ids
-                          .map((id) => missionTypes.find((m) => m.id === id)?.name)
-                          .filter(Boolean)
-                          .join(", ")}
-                  </td>
-                  <td>{p.after_count_30d || 0}</td>
-                  <td>{renderAvailability(p.id)}</td>
-                  <td>
-                    <div className="row-actions">
-                      <button
-                        className="btn btn-ghost btn-small"
-                        type="button"
-                        onClick={() => startEdit(p)}
-                      >
-                        עריכה
-                      </button>
-                      <button
-                        className="btn btn-ghost btn-small"
-                        type="button"
-                        onClick={() => toggleSuspend(p)}
-                      >
-                        {p.is_active ? "השהה" : "הפעל"}
-                      </button>
-                      <button
-                        className="btn btn-danger-ghost btn-small"
-                        type="button"
-                        onClick={() => deletePerson(p)}
-                      >
-                        מחק
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                    </td>
+                  </tr>
+                  {editingId === p.id ? (
+                    <tr className="person-inline-edit-row">
+                      <td colSpan={8}>
+                        <form
+                          className="form-grid person-form person-form-inline"
+                          onSubmit={onSubmit}
+                        >
+                          <div className="person-form-head">
+                            <h3 style={{ margin: 0, fontSize: "1rem" }}>
+                              עריכת {p.full_name}
+                            </h3>
+                          </div>
+                          {renderPersonFormFields("edit")}
+                        </form>
+                      </td>
+                    </tr>
+                  ) : null}
+                </Fragment>
               ))
             )}
           </tbody>

@@ -775,6 +775,43 @@ textarea {
   margin-top: 1rem;
 }
 
+.person-form-compact {
+  margin-top: 0.35rem;
+  max-width: none;
+}
+
+.person-add-details {
+  max-width: 36rem;
+  margin-top: 0.75rem;
+}
+
+.person-form-inline {
+  max-width: none;
+  margin: 0;
+  padding: 0.35rem 0.15rem 0.15rem;
+}
+
+.person-inline-edit-row td {
+  background: rgba(63, 90, 50, 0.05);
+  border-bottom: 1px solid var(--line);
+  padding-top: 0.35rem;
+  padding-bottom: 0.85rem;
+  vertical-align: top;
+}
+
+.person-inline-edit-hint {
+  margin-top: 0.2rem;
+  font-size: 0.78rem;
+  color: var(--olive-deep);
+  font-weight: 600;
+}
+
+.btn.is-active-action {
+  border-color: var(--olive);
+  color: var(--olive-deep);
+  background: rgba(63, 90, 50, 0.08);
+}
+
 .person-form-head {
   display: flex;
   align-items: center;
