@@ -22,8 +22,12 @@ async function request<T>(
       cache: "no-store",
     });
   } catch {
+    const isLocalApi =
+      API_URL.includes("localhost") || API_URL.includes("127.0.0.1");
     throw new Error(
-      "אין חיבור לשרת. ודאו שה־API רץ ופתחו את האתר ב־http://localhost:3000"
+      isLocalApi
+        ? "אין חיבור לשרת. ודאו שה־API רץ ופתחו את האתר ב־http://localhost:3000"
+        : "אין חיבור לשרת כרגע. נסו לרענן בעוד כמה שניות — אם זה נמשך, ייתכן שה־API בענן בתהליך עדכון."
     );
   }
   if (!res.ok) {
