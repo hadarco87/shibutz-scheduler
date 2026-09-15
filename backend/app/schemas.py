@@ -486,6 +486,48 @@ class ScheduleCreate(BaseModel):
     window_end: datetime
     instantiate_recurring: bool = True
     notes: Optional[str] = None
+    plan_id: Optional[int] = None
+    day_index: int = 0
+
+
+class SchedulePlanCreate(BaseModel):
+    """Create a multi-day plan. start_kind: today | tomorrow | date (YYYY-MM-DD via start_date)."""
+
+    days_count: int = Field(default=1, ge=1, le=7)
+    start_kind: str = "tomorrow"  # today | tomorrow | date
+    start_date: Optional[date] = None
+    instantiate_recurring: bool = True
+    generate: bool = True
+    notes: Optional[str] = None
+
+
+class SchedulePlanGenerateIn(BaseModel):
+    scope: str = "all_draft"  # all_draft | day
+    day_schedule_id: Optional[int] = None
+
+
+class ScheduleDayOut(ORMModel):
+    id: int
+    plan_id: Optional[int] = None
+    day_index: int = 0
+    window_start: datetime
+    window_end: datetime
+    status: ScheduleStatus
+    published_at: Optional[datetime] = None
+    assignment_count: int = 0
+    mission_count: int = 0
+
+
+class SchedulePlanOut(ORMModel):
+    id: int
+    company_id: int
+    start_date: date
+    days_count: int
+    status: ScheduleStatus
+    created_by_id: Optional[int] = None
+    published_at: Optional[datetime] = None
+    notes: Optional[str] = None
+    days: List[ScheduleDayOut] = Field(default_factory=list)
 
 
 class AssignmentOut(ORMModel):
@@ -530,6 +572,8 @@ class ReplacementOptionsOut(BaseModel):
 class ScheduleOut(ORMModel):
     id: int
     company_id: int
+    plan_id: Optional[int] = None
+    day_index: int = 0
     window_start: datetime
     window_end: datetime
     status: ScheduleStatus

@@ -15,6 +15,7 @@ from typing import Dict, List, Optional, Tuple
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
+    AfterDraft,
     Assignment,
     AuditLog,
     Mission,
@@ -71,6 +72,78 @@ def current_workload_map(db: Session, company_id: int) -> Dict[int, float]:
     for e in events:
         totals[e.person_id] += e.delta
     return dict(totals)
+
+
+def provisional_workload_before_day(db: Session, schedule: Schedule) -> Dict[int, float]:
+    """Draft assignment workload from earlier days in the same multi-day plan."""
+    if not getattr(schedule, "plan_id", None):
+        return {}
+    siblings = (
+        db.query(Schedule)
+        .options(joinedload(Schedule.assignments), joinedload(Schedule.missions))
+        .filter(
+            Schedule.plan_id == schedule.plan_id,
+            Schedule.id != schedule.id,
+            Schedule.window_start < schedule.window_start,
+            Schedule.status == ScheduleStatus.DRAFT,
+        )
+        .all()
+    )
+    totals: Dict[int, float] = defaultdict(float)
+    for sib in siblings:
+        missions = {m.id: m for m in sib.missions}
+        for a in sib.assignments:
+            mission = missions.get(a.mission_id)
+            if not mission:
+                continue
+            hours = mission_duration_hours(mission.start_at, mission.end_at)
+            totals[a.person_id] += compute_workload_weight(
+                a.difficulty_at_assignment or mission.difficulty_weight, hours
+            )
+    return dict(totals)
+
+
+def provisional_after_counts_before_day(db: Session, schedule: Schedule) -> Dict[int, int]:
+    """After drafts on earlier days in the same plan count toward fairness."""
+    if not getattr(schedule, "plan_id", None):
+        return {}
+    rows = (
+        db.query(AfterDraft)
+        .join(Schedule, AfterDraft.schedule_id == Schedule.id)
+        .filter(
+            Schedule.plan_id == schedule.plan_id,
+            Schedule.window_start < schedule.window_start,
+            Schedule.status == ScheduleStatus.DRAFT,
+        )
+        .all()
+    )
+    counts: Dict[int, int] = defaultdict(int)
+    for d in rows:
+        counts[d.person_id] += 1
+    return dict(counts)
+
+
+def after_draft_blocks_person(
+    db: Session,
+    *,
+    company_id: int,
+    person_id: int,
+    start: datetime,
+    end: datetime,
+) -> Optional[AfterDraft]:
+    row = (
+        db.query(AfterDraft)
+        .join(Schedule, AfterDraft.schedule_id == Schedule.id)
+        .filter(
+            Schedule.company_id == company_id,
+            Schedule.status == ScheduleStatus.DRAFT,
+            AfterDraft.person_id == person_id,
+            AfterDraft.start_at < end,
+            AfterDraft.end_at > start,
+        )
+        .first()
+    )
+    return row
 
 
 def instantiate_recurring_missions(
@@ -504,7 +577,11 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
     )
     people = load_people(db, schedule.company_id)
     workload = current_workload_map(db, schedule.company_id)
+    for pid, delta in provisional_workload_before_day(db, schedule).items():
+        workload[pid] = workload.get(pid, 0.0) + delta
     after_counts = after_count_map(db, schedule.company_id, schedule.window_start)
+    for pid, extra in provisional_after_counts_before_day(db, schedule).items():
+        after_counts[pid] = after_counts.get(pid, 0) + extra
     missions_by_id = {m.id: m for m in missions}
     role_names = {
         r.id: r.name

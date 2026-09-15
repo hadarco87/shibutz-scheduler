@@ -180,6 +180,38 @@ export const api = {
   getSchedule: (token: string, id: number) => request<Schedule>(`/schedules/${id}`, {}, token),
   createSchedule: (token: string, body: object) =>
     request<Schedule>("/schedules", { method: "POST", body: JSON.stringify(body) }, token),
+  activeSchedulePlan: (token: string) =>
+    request<SchedulePlan | null>("/schedule-plans/active", {}, token),
+  getSchedulePlan: (token: string, planId: number) =>
+    request<SchedulePlan>(`/schedule-plans/${planId}`, {}, token),
+  createSchedulePlan: (
+    token: string,
+    body: {
+      days_count: number;
+      start_kind: "today" | "tomorrow" | "date";
+      start_date?: string;
+      instantiate_recurring?: boolean;
+      generate?: boolean;
+      notes?: string;
+    }
+  ) =>
+    request<SchedulePlan>(
+      "/schedule-plans",
+      { method: "POST", body: JSON.stringify(body) },
+      token
+    ),
+  generateSchedulePlan: (
+    token: string,
+    planId: number,
+    body: { scope: "all_draft" | "day"; day_schedule_id?: number }
+  ) =>
+    request<SchedulePlan>(
+      `/schedule-plans/${planId}/generate`,
+      { method: "POST", body: JSON.stringify(body) },
+      token
+    ),
+  publishSchedulePlan: (token: string, planId: number) =>
+    request<SchedulePlan>(`/schedule-plans/${planId}/publish`, { method: "POST" }, token),
   syncScheduleMissions: (token: string, id: number) =>
     request<Schedule>(`/schedules/${id}/sync-missions`, { method: "POST" }, token),
   generate: (token: string, id: number) =>
@@ -530,6 +562,8 @@ export type ReplacementOptions = {
 
 export type Schedule = {
   id: number;
+  plan_id?: number | null;
+  day_index?: number;
   window_start: string;
   window_end: string;
   status: "draft" | "published";
@@ -538,6 +572,30 @@ export type Schedule = {
   share_token?: string | null;
   assignments: Assignment[];
   missions: Mission[];
+};
+
+export type ScheduleDaySummary = {
+  id: number;
+  plan_id?: number | null;
+  day_index: number;
+  window_start: string;
+  window_end: string;
+  status: "draft" | "published";
+  published_at?: string | null;
+  assignment_count: number;
+  mission_count: number;
+};
+
+export type SchedulePlan = {
+  id: number;
+  company_id: number;
+  start_date: string;
+  days_count: number;
+  status: "draft" | "published";
+  created_by_id?: number | null;
+  published_at?: string | null;
+  notes?: string | null;
+  days: ScheduleDaySummary[];
 };
 
 export type SchedulingResult = {

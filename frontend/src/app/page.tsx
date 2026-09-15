@@ -14,6 +14,7 @@ import {
   MissionType,
   Person,
   Schedule,
+  SchedulePlan,
   SchedulingResult,
   ReplacementOptions,
 } from "@/lib/api";
@@ -111,6 +112,11 @@ export default function HomePage() {
   const confirm = useConfirm();
   const pdfRef = useRef<HTMLDivElement>(null);
   const [schedule, setSchedule] = useState<Schedule | null>(null);
+  const [plan, setPlan] = useState<SchedulePlan | null>(null);
+  const [planDaysCount, setPlanDaysCount] = useState(1);
+  const [planStartKind, setPlanStartKind] = useState<"today" | "tomorrow">(
+    "tomorrow"
+  );
   const [people, setPeople] = useState<Person[]>([]);
   const [missionTypes, setMissionTypes] = useState<MissionType[]>([]);
   const [result, setResult] = useState<SchedulingResult | null>(null);
@@ -132,19 +138,77 @@ export default function HomePage() {
   >({});
   const [rosterOpen, setRosterOpen] = useState(false);
 
+  function applyAfterPreview(preview: AfterPreview | null) {
+    setAfterPreview(preview);
+    if (!preview) {
+      setAfterSelected({});
+      return;
+    }
+    const sel: Record<number, { start: string; end: string }> = {};
+    for (const d of preview.drafts) {
+      sel[d.person_id] = {
+        start: formatLocal(new Date(d.start_at)),
+        end: formatLocal(new Date(d.end_at)),
+      };
+    }
+    setAfterSelected(sel);
+  }
+
+  async function loadDaySchedule(
+    token: string,
+    dayId: number,
+    opts?: { sync?: boolean }
+  ): Promise<Schedule> {
+    let day = await api.getSchedule(token, dayId);
+    if (opts?.sync !== false && day.status === "draft") {
+      try {
+        day = await api.syncScheduleMissions(token, day.id);
+      } catch {
+        /* keep loaded day if sync fails */
+      }
+    }
+    setSchedule(day);
+    if (day.status === "draft" && day.assignments.length) {
+      try {
+        applyAfterPreview(await api.afterPreview(token, day.id));
+      } catch {
+        applyAfterPreview(null);
+      }
+    } else {
+      applyAfterPreview(null);
+    }
+    return day;
+  }
+
   const load = useCallback(async () => {
     if (!token) return;
-    const [schedules, roster, types] = await Promise.all([
+    const [activePlan, schedules, roster, types] = await Promise.all([
+      api.activeSchedulePlan(token),
       api.schedules(token),
       api.people(token),
       api.missionTypes(token),
     ]);
     setPeople(roster.filter((p) => p.is_active));
     setMissionTypes(types);
+
+    if (activePlan && activePlan.days.length) {
+      setPlan(activePlan);
+      setPlanDaysCount(activePlan.days_count);
+      setPlanStartKind(
+        sameCalendarDay(
+          new Date(activePlan.days[0].window_start),
+          calendarDayWindow("today").start
+        )
+          ? "today"
+          : "tomorrow"
+      );
+      await loadDaySchedule(token, activePlan.days[0].id);
+      return;
+    }
+
+    setPlan(null);
     let draft =
-      schedules.find((s) => s.status === "draft") ||
-      schedules[0] ||
-      null;
+      schedules.find((s) => s.status === "draft") || schedules[0] || null;
     if (draft && draft.status === "draft") {
       try {
         draft = await api.syncScheduleMissions(token, draft.id);
@@ -155,23 +219,14 @@ export default function HomePage() {
     setSchedule(draft);
     if (draft && draft.status === "draft" && draft.assignments.length) {
       try {
-        const preview = await api.afterPreview(token, draft.id);
-        setAfterPreview(preview);
-        const sel: Record<number, { start: string; end: string }> = {};
-        for (const d of preview.drafts) {
-          sel[d.person_id] = {
-            start: formatLocal(new Date(d.start_at)),
-            end: formatLocal(new Date(d.end_at)),
-          };
-        }
-        setAfterSelected(sel);
+        applyAfterPreview(await api.afterPreview(token, draft.id));
       } catch {
-        setAfterPreview(null);
+        applyAfterPreview(null);
       }
     } else {
-      setAfterPreview(null);
-      setAfterSelected({});
+      applyAfterPreview(null);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
   useEffect(() => {
@@ -308,32 +363,61 @@ export default function HomePage() {
     }
   }
 
+  async function selectPlanDay(dayId: number) {
+    if (!token || !plan) return;
+    if (schedule?.id === dayId) return;
+    setBusy(true);
+    setError("");
+    setResult(null);
+    try {
+      await loadDaySchedule(token, dayId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "טעינת היום נכשלה");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function refreshPlanKeepingDay(planOut: SchedulePlan, dayId?: number) {
+    if (!token) return;
+    setPlan(planOut);
+    const keepId =
+      dayId ??
+      (schedule && planOut.days.some((d) => d.id === schedule.id)
+        ? schedule.id
+        : planOut.days[0]?.id);
+    if (keepId) {
+      await loadDaySchedule(token, keepId);
+    }
+  }
+
   async function createWindow(which: "today" | "tomorrow", opts?: { silent?: boolean }) {
     if (!token) return null;
-    if (!opts?.silent && schedule && schedule.status === "draft") {
+    if (!opts?.silent && plan && plan.status === "draft") {
       const label = which === "today" ? "היום" : "מחר";
       const ok = await confirm({
-        title: "חלון שיבוץ חדש",
-        message: `ליצור חלון שיבוץ חדש ל${label}?\nהטיוטה הנוכחית תישאר; החלון החדש יהפוך לפעיל.`,
-        confirmLabel: "צור חלון",
+        title: "תוכנית שיבוץ חדשה",
+        message: `ליצור תוכנית חדשה ל${label}?\nהטיוטה הנוכחית תישאר; התוכנית החדשה תהפוך לפעילה.`,
+        confirmLabel: "צור תוכנית",
       });
-      if (!ok) {
-        return null;
-      }
+      if (!ok) return null;
     }
     setBusy(true);
     setError("");
     setResult(null);
-    setAfterPreview(null);
-    setAfterSelected({});
     try {
-      const { start, end } = calendarDayWindow(which);
-      const created = await api.createSchedule(token, {
-        window_start: toApiLocal(start),
-        window_end: toApiLocal(end),
+      const created = await api.createSchedulePlan(token, {
+        days_count: 1,
+        start_kind: which,
         instantiate_recurring: true,
+        generate: false,
       });
-      setSchedule(created);
+      setPlan(created);
+      setPlanDaysCount(1);
+      setPlanStartKind(which);
+      if (created.days[0]) {
+        await loadDaySchedule(token, created.days[0].id);
+      }
       return created;
     } catch (e) {
       setError(e instanceof Error ? e.message : "שגיאה");
@@ -343,45 +427,91 @@ export default function HomePage() {
     }
   }
 
-  async function onGenerate() {
+  function generateButtonLabel() {
+    if (planStartKind === "today" && planDaysCount === 1) {
+      return "שבץ אותי להיום";
+    }
+    if (planDaysCount <= 1) {
+      return "שבץ אותי למחר";
+    }
+    return `שבץ ל־${planDaysCount} ימים קדימה`;
+  }
+
+  async function onGeneratePlan(scope: "all_draft" | "day" = "all_draft") {
     if (!token) return;
+
+    const wantToday = planStartKind === "today" && planDaysCount === 1;
+    const wantDays = wantToday ? 1 : Math.max(1, Math.min(7, planDaysCount));
+    const wantKind: "today" | "tomorrow" = wantToday ? "today" : "tomorrow";
+    const existing = plan;
+
+    const matchedPlan =
+      existing &&
+      existing.status === "draft" &&
+      existing.days_count === wantDays &&
+      existing.days[0] &&
+      sameCalendarDay(
+        new Date(existing.days[0].window_start),
+        calendarDayWindow(wantKind).start
+      )
+        ? existing
+        : null;
+
+    if (!matchedPlan) {
+      if (existing && existing.status === "draft") {
+        const ok = await confirm({
+          title: "תוכנית שיבוץ חדשה",
+          message:
+            "כבר יש טיוטת תוכנית פתוחה. ליצור תוכנית חדשה לפי הטווח שנבחר?\nהטיוטה הקודמת תישאר בהיסטוריה.",
+          confirmLabel: "צור תוכנית חדשה",
+        });
+        if (!ok) return;
+      }
+    } else if (scope === "all_draft" && matchedPlan.days_count > 1) {
+      const ok = await confirm({
+        title: "שיבוץ מחדש לכל הימים",
+        message:
+          "לשבץ מחדש את כל ימי הטיוטה בתוכנית?\nימים שכבר פורסמו לא יידרסו.\nלשיבוץ יום בודד השתמשו ב«שבץ מחדש יום זה».",
+        confirmLabel: "שבץ את כל הימים",
+      });
+      if (!ok) return;
+    }
+
     setBusy(true);
     setError("");
     try {
-      let target = schedule;
-      const tomorrowStart = calendarDayWindow("tomorrow").start;
-      const onTomorrow =
-        target &&
-        target.status === "draft" &&
-        sameCalendarDay(new Date(target.window_start), tomorrowStart);
-
-      if (!onTomorrow) {
-        // Always schedule the next calendar day, regardless of current clock time.
-        const { start, end } = calendarDayWindow("tomorrow");
-        target = await api.createSchedule(token, {
-          window_start: toApiLocal(start),
-          window_end: toApiLocal(end),
+      if (!matchedPlan) {
+        const created = await api.createSchedulePlan(token, {
+          days_count: wantDays,
+          start_kind: wantKind,
           instantiate_recurring: true,
+          generate: true,
         });
-        setSchedule(target);
-        setAfterPreview(null);
-        setAfterSelected({});
+        await refreshPlanKeepingDay(created, created.days[0]?.id);
+        setResult(null);
+        return;
       }
 
-      if (!target) return;
-      const res = await api.generate(token, target.id);
-      setResult(res);
-      setSchedule(res.schedule);
-      const preview = await api.afterPreview(token, target.id);
-      setAfterPreview(preview);
-      const sel: Record<number, { start: string; end: string }> = {};
-      for (const d of preview.drafts) {
-        sel[d.person_id] = {
-          start: formatLocal(new Date(d.start_at)),
-          end: formatLocal(new Date(d.end_at)),
-        };
+      const dayId = schedule?.id;
+      if (scope === "day" && dayId) {
+        const res = await api.generate(token, dayId);
+        setResult(res);
+        setSchedule(res.schedule);
+        try {
+          applyAfterPreview(await api.afterPreview(token, dayId));
+        } catch {
+          applyAfterPreview(null);
+        }
+        const refreshed = await api.getSchedulePlan(token, matchedPlan.id);
+        setPlan(refreshed);
+        return;
       }
-      setAfterSelected(sel);
+
+      const regenerated = await api.generateSchedulePlan(token, matchedPlan.id, {
+        scope: "all_draft",
+      });
+      await refreshPlanKeepingDay(regenerated, dayId);
+      setResult(null);
     } catch (e) {
       setError(e instanceof Error ? e.message : "שגיאה בשיבוץ");
     } finally {
@@ -389,48 +519,35 @@ export default function HomePage() {
     }
   }
 
-  async function onGenerateForToday() {
-    if (!token || !schedule || schedule.status !== "draft") return;
-    setBusy(true);
-    setError("");
-    try {
-      const res = await api.generate(token, schedule.id);
-      setResult(res);
-      setSchedule(res.schedule);
-      const preview = await api.afterPreview(token, schedule.id);
-      setAfterPreview(preview);
-      const sel: Record<number, { start: string; end: string }> = {};
-      for (const d of preview.drafts) {
-        sel[d.person_id] = {
-          start: formatLocal(new Date(d.start_at)),
-          end: formatLocal(new Date(d.end_at)),
-        };
-      }
-      setAfterSelected(sel);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "שגיאה בשיבוץ");
-    } finally {
-      setBusy(false);
-    }
+  async function onGenerateDayOnly() {
+    if (!token || !plan || !schedule || schedule.status !== "draft") return;
+    await onGeneratePlan("day");
   }
 
   async function onPublish() {
     if (!token || !schedule) return;
+    const multi = plan && plan.days_count > 1;
     const ok = await confirm({
-      title: "פרסום שיבוץ",
-      message: "לאשר ולפרסם את השיבוץ?\nפעולה זו תעדכן את מדד העומס.",
-      confirmLabel: "פרסם",
+      title: multi ? "פרסום תוכנית שיבוץ" : "פרסום שיבוץ",
+      message: multi
+        ? "לאשר ולפרסם את כל ימי התוכנית?\nפעולה זו תעדכן את מדד העומס ואת האפטרים לכל הימים יחד."
+        : "לאשר ולפרסם את השיבוץ?\nפעולה זו תעדכן את מדד העומס.",
+      confirmLabel: multi ? "פרסם את כל התקופה" : "פרסם",
       tone: "accent",
     });
     if (!ok) return;
     setBusy(true);
     setError("");
     try {
-      const published = await api.publish(token, schedule.id);
-      setSchedule(published);
+      if (plan) {
+        const published = await api.publishSchedulePlan(token, plan.id);
+        await refreshPlanKeepingDay(published, schedule.id);
+      } else {
+        const published = await api.publish(token, schedule.id);
+        setSchedule(published);
+        applyAfterPreview(null);
+      }
       setResult(null);
-      setAfterPreview(null);
-      setAfterSelected({});
       setPublishShareOpen(true);
       setAutoPdfAfterPublish(true);
     } catch (e) {
@@ -460,6 +577,37 @@ export default function HomePage() {
         schedule.window_start
       );
       downloadBlob(blob, name);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "הפקת PDF נכשלה");
+    } finally {
+      setPdfBusy(false);
+    }
+  }
+
+  async function buildAndDownloadAllPlanPdfs() {
+    if (!token || !plan || !plan.days.length) {
+      await buildAndDownloadPdf();
+      return;
+    }
+    setPdfBusy(true);
+    setError("");
+    const previousId = schedule?.id;
+    try {
+      for (const day of plan.days) {
+        await loadDaySchedule(token, day.id, { sync: false });
+        await new Promise((r) => window.requestAnimationFrame(() => r(null)));
+        await new Promise((r) => window.setTimeout(r, 40));
+        const blob = await buildPdfBlob();
+        const name = schedulePdfFilename(
+          user?.company_name || "pluga",
+          day.window_start
+        );
+        downloadBlob(blob, name);
+        await new Promise((r) => window.setTimeout(r, 200));
+      }
+      if (previousId) {
+        await loadDaySchedule(token, previousId, { sync: false });
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "הפקת PDF נכשלה");
     } finally {
@@ -676,6 +824,34 @@ export default function HomePage() {
     []
   );
 
+  const planRangeLabel = useMemo(() => {
+    if (!plan || !plan.days.length) return null;
+    const first = new Date(plan.days[0].window_start);
+    const last = new Date(plan.days[plan.days.length - 1].window_start);
+    if (plan.days.length === 1) {
+      return formatDayTitle(first);
+    }
+    const short: Intl.DateTimeFormatOptions = {
+      day: "numeric",
+      month: "short",
+    };
+    return `${first.toLocaleDateString("he-IL", short)} – ${last.toLocaleDateString("he-IL", short)}`;
+  }, [plan]);
+
+  const canPublishPlan =
+    !!plan &&
+    plan.status === "draft" &&
+    (plan.days.some((d) => d.status === "draft" && d.assignment_count > 0) ||
+      (!!schedule &&
+        schedule.status === "draft" &&
+        schedule.assignments.length > 0));
+
+  const canPublishSingle =
+    !!schedule &&
+    schedule.status === "draft" &&
+    schedule.assignments.length > 0 &&
+    (!plan || plan.days_count === 1);
+
   return (
     <AppShell>
       <section className="panel">
@@ -702,7 +878,14 @@ export default function HomePage() {
               {windowKind === "today" ? (
                 <>
                   <span className="schedule-day-badge today">שיבוץ להיום</span>
-                  {formatDayTitle(schedule!.window_start)} · 00:00–24:00
+                  {schedule
+                    ? `${formatDayTitle(schedule.window_start)} · 00:00–24:00`
+                    : `${todayTitle} · 00:00–24:00`}
+                </>
+              ) : plan && plan.days_count > 1 ? (
+                <>
+                  <span className="schedule-day-badge">תוכנית רב־יומית</span>
+                  {planRangeLabel} · {plan.days_count} ימים
                 </>
               ) : (
                 <>
@@ -713,23 +896,90 @@ export default function HomePage() {
                 </>
               )}
             </p>
-            <p
-              style={{
-                margin: "0.35rem 0 0",
-                color: "var(--ink-soft)",
-                fontSize: "0.9rem",
-              }}
-            >
-              «שבץ אותי למחר» תמיד בונה שיבוץ ליממה הבאה (חצות–חצות), בלי קשר
-              לשעה הנוכחית.
-            </p>
+
+            <div className="plan-range-bar">
+              <label className="plan-range-field">
+                <span>התחלה</span>
+                <select
+                  value={planStartKind}
+                  disabled={busy || planDaysCount > 1}
+                  onChange={(e) =>
+                    setPlanStartKind(e.target.value as "today" | "tomorrow")
+                  }
+                >
+                  <option value="tomorrow">מחר</option>
+                  <option value="today">היום</option>
+                </select>
+              </label>
+              <label className="plan-range-field">
+                <span>מספר ימים</span>
+                <select
+                  value={planDaysCount}
+                  disabled={busy || planStartKind === "today"}
+                  onChange={(e) => {
+                    const n = Number(e.target.value);
+                    setPlanDaysCount(n);
+                    if (n > 1) setPlanStartKind("tomorrow");
+                  }}
+                >
+                  {[1, 2, 3, 4, 5, 6, 7].map((n) => (
+                    <option key={n} value={n}>
+                      {n}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <span className="plan-range-hint">
+                {planStartKind === "today"
+                  ? "קיצור ליום אחד — היום"
+                  : planDaysCount === 1
+                    ? "יממה אחת — מחר"
+                    : `מחר + ${planDaysCount - 1} ימים נוספים (עד 7)`}
+              </span>
+            </div>
+
+            {plan && plan.days.length > 1 ? (
+              <div className="plan-day-tabs" role="tablist" aria-label="ימי התוכנית">
+                {plan.days.map((d, idx) => {
+                  const active = schedule?.id === d.id;
+                  const label = new Date(d.window_start).toLocaleDateString(
+                    "he-IL",
+                    { weekday: "short", day: "numeric", month: "numeric" }
+                  );
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      role="tab"
+                      aria-selected={active}
+                      className={`plan-day-tab${active ? " active" : ""}${
+                        d.status === "published" ? " published" : ""
+                      }`}
+                      disabled={busy}
+                      onClick={() => void selectPlanDay(d.id)}
+                    >
+                      <span className="plan-day-tab-idx">יום {idx + 1}</span>
+                      <span className="plan-day-tab-date">{label}</span>
+                      {d.status === "published" ? (
+                        <span className="plan-day-tab-status">מפורסם</span>
+                      ) : null}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+
             <p className="schedule-day-alt">
               {windowKind === "today" ? (
                 <button
                   type="button"
                   className="text-link"
                   disabled={busy}
-                  onClick={() => createWindow("tomorrow")}
+                  onClick={() => {
+                    setPlanStartKind("tomorrow");
+                    setPlanDaysCount(1);
+                    void createWindow("tomorrow");
+                  }}
                 >
                   חזרה לשיבוץ מחר (ברירת מחדל)
                 </button>
@@ -737,8 +987,12 @@ export default function HomePage() {
                 <button
                   type="button"
                   className="text-link"
-                  disabled={busy}
-                  onClick={() => createWindow("today")}
+                  disabled={busy || planDaysCount > 1}
+                  onClick={() => {
+                    setPlanStartKind("today");
+                    setPlanDaysCount(1);
+                    void createWindow("today");
+                  }}
                 >
                   צריך שיבוץ להיום במקום?
                 </button>
@@ -746,63 +1000,65 @@ export default function HomePage() {
             </p>
           </div>
           <div className="hero-primary-actions">
-            {schedule && schedule.status === "draft" && windowKind === "today" ? (
+            <button
+              className="btn btn-primary"
+              type="button"
+              disabled={busy}
+              onClick={() => void onGeneratePlan("all_draft")}
+            >
+              {generateButtonLabel()}
+            </button>
+            {plan &&
+            plan.status === "draft" &&
+            schedule &&
+            schedule.status === "draft" &&
+            plan.days_count > 1 ? (
+              <button
+                className="btn btn-ghost"
+                type="button"
+                disabled={busy}
+                onClick={() => void onGenerateDayOnly()}
+              >
+                שבץ מחדש יום זה
+              </button>
+            ) : null}
+            {(canPublishPlan || canPublishSingle) &&
+            schedule?.status === "draft" ? (
+              <button
+                className="btn btn-accent"
+                type="button"
+                disabled={busy || !(canPublishPlan || canPublishSingle)}
+                onClick={() => void onPublish()}
+              >
+                {plan && plan.days_count > 1
+                  ? "מאושר לפרסום — כל התקופה"
+                  : "מאושר לפרסום"}
+              </button>
+            ) : null}
+            {schedule?.status === "published" || plan?.status === "published" ? (
               <>
                 <button
                   className="btn btn-primary"
                   type="button"
-                  disabled={busy}
-                  onClick={onGenerateForToday}
-                >
-                  שבץ אותי להיום
-                </button>
-                <button
-                  className="btn btn-accent"
-                  type="button"
-                  disabled={busy || !schedule.assignments.length}
-                  onClick={onPublish}
-                >
-                  מאושר לפרסום
-                </button>
-              </>
-            ) : (
-              <>
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  disabled={busy}
-                  onClick={onGenerate}
-                >
-                  שבץ אותי למחר
-                </button>
-                {schedule &&
-                schedule.status === "draft" &&
-                windowKind === "tomorrow" ? (
-                  <button
-                    className="btn btn-accent"
-                    type="button"
-                    disabled={busy || !schedule.assignments.length}
-                    onClick={onPublish}
-                  >
-                    מאושר לפרסום
-                  </button>
-                ) : null}
-              </>
-            )}
-            {schedule?.status === "published" ? (
-              <>
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  disabled={pdfBusy}
+                  disabled={pdfBusy || !schedule}
                   onClick={() => void buildAndDownloadPdf()}
                 >
-                  {pdfBusy ? "מכין PDF…" : "הורד PDF"}
+                  {pdfBusy ? "מכין PDF…" : "הורד PDF ליום זה"}
                 </button>
+                {plan && plan.days.length > 1 ? (
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    disabled={pdfBusy}
+                    onClick={() => void buildAndDownloadAllPlanPdfs()}
+                  >
+                    הורד PDF לכל הימים
+                  </button>
+                ) : null}
                 <button
                   className="btn btn-accent"
                   type="button"
-                  disabled={pdfBusy}
+                  disabled={pdfBusy || !schedule}
                   onClick={() => void sharePublishedPdf()}
                 >
                   שתף בוואטסאפ
@@ -1353,8 +1609,11 @@ export default function HomePage() {
           >
             <h2 id="publish-share-title">השיבוץ פורסם</h2>
             <p>
-              קובץ PDF של שיבוץ הפלוגה מוכן. אפשר להוריד שוב או לשתף בוואטסאפ
-              {includePdfTimeline ? " (כולל ציר זמן)" : ""}.
+              {plan && plan.days.length > 1
+                ? "התוכנית פורסמה. אפשר להוריד PDF ליום הנוכחי, לכל הימים, או לשתף בוואטסאפ."
+                : `קובץ PDF של שיבוץ הפלוגה מוכן. אפשר להוריד שוב או לשתף בוואטסאפ${
+                    includePdfTimeline ? " (כולל ציר זמן)" : ""
+                  }.`}
             </p>
             <div className="publish-share-actions">
               <button
@@ -1372,6 +1631,16 @@ export default function HomePage() {
               >
                 {pdfBusy ? "…" : "הורד PDF"}
               </button>
+              {plan && plan.days.length > 1 ? (
+                <button
+                  className="btn btn-ghost btn-small"
+                  type="button"
+                  disabled={pdfBusy}
+                  onClick={() => void buildAndDownloadAllPlanPdfs()}
+                >
+                  כל הימים
+                </button>
+              ) : null}
               <button
                 className="btn btn-accent btn-small"
                 type="button"

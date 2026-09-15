@@ -97,6 +97,7 @@ class Company(Base, TimestampMixin):
     mission_types: Mapped[List["MissionType"]] = relationship(back_populates="company")
     missions: Mapped[List["Mission"]] = relationship(back_populates="company")
     schedules: Mapped[List["Schedule"]] = relationship(back_populates="company")
+    schedule_plans: Mapped[List["SchedulePlan"]] = relationship(back_populates="company")
     constraints: Mapped[List["SchedulingConstraint"]] = relationship(back_populates="company")
 
 
@@ -506,11 +507,39 @@ class SchedulingConstraint(Base, TimestampMixin):
     company: Mapped["Company"] = relationship(back_populates="constraints")
 
 
+class SchedulePlan(Base, TimestampMixin):
+    """Multi-day scheduling plan: up to 7 consecutive calendar days."""
+
+    __tablename__ = "schedule_plans"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False)
+    start_date: Mapped[date] = mapped_column(Date, nullable=False)
+    days_count: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[ScheduleStatus] = mapped_column(
+        Enum(ScheduleStatus), default=ScheduleStatus.DRAFT
+    )
+    created_by_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True)
+    published_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    company: Mapped["Company"] = relationship(back_populates="schedule_plans")
+    schedules: Mapped[List["Schedule"]] = relationship(
+        back_populates="plan",
+        cascade="all, delete-orphan",
+        order_by="Schedule.window_start",
+    )
+
+
 class Schedule(Base, TimestampMixin):
     __tablename__ = "schedules"
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False)
+    plan_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("schedule_plans.id"), nullable=True, index=True
+    )
+    day_index: Mapped[int] = mapped_column(Integer, default=0)
     window_start: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     window_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     status: Mapped[ScheduleStatus] = mapped_column(
@@ -523,6 +552,7 @@ class Schedule(Base, TimestampMixin):
     share_token: Mapped[Optional[str]] = mapped_column(String(64), nullable=True, index=True)
 
     company: Mapped["Company"] = relationship(back_populates="schedules")
+    plan: Mapped[Optional["SchedulePlan"]] = relationship(back_populates="schedules")
     missions: Mapped[List["Mission"]] = relationship(back_populates="schedule")
     versions: Mapped[List["ScheduleVersion"]] = relationship(
         back_populates="schedule", cascade="all, delete-orphan"

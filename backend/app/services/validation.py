@@ -12,6 +12,7 @@ from typing import Dict, Iterable, List, Optional, Set
 from sqlalchemy.orm import Session, joinedload
 
 from app.models import (
+    AfterDraft,
     Assignment,
     ConstraintType,
     LeavePeriod,
@@ -22,6 +23,7 @@ from app.models import (
     Role,
     RoleCapability,
     Schedule,
+    ScheduleStatus,
     SchedulingConstraint,
 )
 from app.services.recurrence import blocking_recurring_restriction
@@ -190,6 +192,30 @@ def validate_assignment(
                 mission.id,
                 person.id,
                 {"leave_id": leave.id},
+            )
+        )
+
+    after_draft = (
+        db.query(AfterDraft)
+        .join(Schedule, AfterDraft.schedule_id == Schedule.id)
+        .filter(
+            Schedule.company_id == company_id,
+            Schedule.status == ScheduleStatus.DRAFT,
+            AfterDraft.person_id == person.id,
+            AfterDraft.start_at < mission.end_at,
+            AfterDraft.end_at > mission.start_at,
+        )
+        .first()
+    )
+    if after_draft:
+        violations.append(
+            Violation(
+                "hard",
+                "after_draft",
+                f"{person.full_name} באפטר (טיוטה) בתקופת המשימה",
+                mission.id,
+                person.id,
+                {"after_draft_id": after_draft.id},
             )
         )
 

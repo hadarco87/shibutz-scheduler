@@ -32,6 +32,7 @@ from app.models import (
     Role,
     RoleCapability,
     Schedule,
+    SchedulePlan,
     ScheduleStatus,
     SchedulingConstraint,
     User,
@@ -92,7 +93,11 @@ from app.schemas import (
     RoleOut,
     RoleUpdate,
     ScheduleCreate,
+    ScheduleDayOut,
     ScheduleOut,
+    SchedulePlanCreate,
+    SchedulePlanGenerateIn,
+    SchedulePlanOut,
     SchedulingResultOut,
     Token,
     UserOut,
@@ -120,6 +125,14 @@ from app.services.scheduling import (
     publish_schedule,
     replace_assignment,
     sync_mission_type_to_drafts,
+)
+from app.services.plans import (
+    MAX_PLAN_DAYS,
+    active_draft_plan,
+    create_schedule_plan,
+    generate_plan,
+    load_plan,
+    publish_plan,
 )
 from app.services.validation import validate_schedule
 
@@ -500,6 +513,8 @@ def schedule_out(db: Session, schedule: Schedule) -> ScheduleOut:
     return ScheduleOut(
         id=schedule.id,
         company_id=schedule.company_id,
+        plan_id=getattr(schedule, "plan_id", None),
+        day_index=getattr(schedule, "day_index", 0) or 0,
         window_start=schedule.window_start,
         window_end=schedule.window_end,
         status=schedule.status,
@@ -510,6 +525,44 @@ def schedule_out(db: Session, schedule: Schedule) -> ScheduleOut:
         share_token=schedule.share_token,
         assignments=[assignment_out(a) for a in schedule.assignments],
         missions=[mission_out(m) for m in schedule.missions],
+    )
+
+
+def schedule_day_out(s: Schedule) -> ScheduleDayOut:
+    return ScheduleDayOut(
+        id=s.id,
+        plan_id=getattr(s, "plan_id", None),
+        day_index=getattr(s, "day_index", 0) or 0,
+        window_start=s.window_start,
+        window_end=s.window_end,
+        status=s.status,
+        published_at=s.published_at,
+        assignment_count=len(s.assignments or []),
+        mission_count=len(s.missions or []),
+    )
+
+
+def schedule_plan_out(db: Session, plan: SchedulePlan) -> SchedulePlanOut:
+    plan = (
+        db.query(SchedulePlan)
+        .options(
+            joinedload(SchedulePlan.schedules).joinedload(Schedule.assignments),
+            joinedload(SchedulePlan.schedules).joinedload(Schedule.missions),
+        )
+        .filter(SchedulePlan.id == plan.id)
+        .one()
+    )
+    days = sorted(plan.schedules or [], key=lambda s: s.window_start)
+    return SchedulePlanOut(
+        id=plan.id,
+        company_id=plan.company_id,
+        start_date=plan.start_date,
+        days_count=plan.days_count,
+        status=plan.status,
+        created_by_id=plan.created_by_id,
+        published_at=plan.published_at,
+        notes=plan.notes,
+        days=[schedule_day_out(s) for s in days],
     )
 
 
@@ -1858,6 +1911,119 @@ def create_constraint(
 
 
 # ---------- schedules ----------
+
+@router.get("/schedule-plans/active", response_model=Optional[SchedulePlanOut])
+def get_active_schedule_plan(
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    plan = active_draft_plan(db, user.company_id)
+    if not plan:
+        return None
+    return schedule_plan_out(db, plan)
+
+
+@router.get("/schedule-plans/{plan_id}", response_model=SchedulePlanOut)
+def get_schedule_plan(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(get_current_user),
+):
+    plan = load_plan(db, plan_id, user.company_id)
+    if not plan:
+        raise HTTPException(404, "תוכנית שיבוץ לא נמצאה")
+    return schedule_plan_out(db, plan)
+
+
+@router.post("/schedule-plans", response_model=SchedulePlanOut)
+def create_plan(
+    body: SchedulePlanCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    if body.days_count < 1 or body.days_count > MAX_PLAN_DAYS:
+        raise HTTPException(400, f"מספר ימים חייב להיות בין 1 ל־{MAX_PLAN_DAYS}")
+
+    today = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).date()
+    kind = (body.start_kind or "tomorrow").strip().lower()
+    if kind == "today":
+        start = today
+    elif kind == "tomorrow":
+        start = today + timedelta(days=1)
+    elif kind == "date":
+        if not body.start_date:
+            raise HTTPException(400, "חסר תאריך התחלה")
+        start = body.start_date
+    else:
+        raise HTTPException(400, "סוג התחלה לא חוקי")
+
+    plan = create_schedule_plan(
+        db,
+        company_id=user.company_id,
+        user_id=user.id,
+        start_date=start,
+        days_count=body.days_count,
+        instantiate=body.instantiate_recurring,
+        notes=body.notes,
+    )
+    db.commit()
+    plan = load_plan(db, plan.id, user.company_id)
+    assert plan is not None
+    if body.generate:
+        try:
+            generate_plan(db, plan, user_id=user.id, scope="all_draft")
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+    plan = load_plan(db, plan.id, user.company_id)
+    assert plan is not None
+    return schedule_plan_out(db, plan)
+
+
+@router.post("/schedule-plans/{plan_id}/generate", response_model=SchedulePlanOut)
+def generate_schedule_plan(
+    plan_id: int,
+    body: SchedulePlanGenerateIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    plan = load_plan(db, plan_id, user.company_id)
+    if not plan:
+        raise HTTPException(404, "תוכנית שיבוץ לא נמצאה")
+    scope = (body.scope or "all_draft").strip().lower()
+    if scope not in ("all_draft", "day"):
+        raise HTTPException(400, "scope חייב להיות all_draft או day")
+    try:
+        generate_plan(
+            db,
+            plan,
+            user_id=user.id,
+            scope=scope,
+            day_schedule_id=body.day_schedule_id,
+        )
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    plan = load_plan(db, plan.id, user.company_id)
+    assert plan is not None
+    return schedule_plan_out(db, plan)
+
+
+@router.post("/schedule-plans/{plan_id}/publish", response_model=SchedulePlanOut)
+def publish_schedule_plan(
+    plan_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    plan = load_plan(db, plan_id, user.company_id)
+    if not plan:
+        raise HTTPException(404, "תוכנית שיבוץ לא נמצאה")
+    try:
+        plan = publish_plan(db, plan, user.id)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+    plan = load_plan(db, plan.id, user.company_id)
+    assert plan is not None
+    return schedule_plan_out(db, plan)
+
 
 @router.get("/schedules", response_model=List[ScheduleOut])
 def list_schedules(db: Session = Depends(get_db), user: User = Depends(get_current_user)):
