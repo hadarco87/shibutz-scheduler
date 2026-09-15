@@ -279,6 +279,16 @@ class MissionType(Base, TimestampMixin):
     routine_remainder_policy: Mapped[str] = mapped_column(
         String(32), default=RoutineRemainderPolicy.INCLUDE_SHORT.value
     )
+    # Routine day recurrence (only used when is_recurring_template=True)
+    recurrence_kind: Mapped[str] = mapped_column(
+        String(32), default=RecurrenceKind.DAILY.value
+    )
+    recurrence_interval_days: Mapped[int] = mapped_column(Integer, default=1)
+    # Comma-separated Python weekdays: 0=Mon ... 6=Sun
+    recurrence_weekdays: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    recurrence_anchor_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
+    # uniform = duration + start hour; custom = time_windows as shift segments
+    routine_hours_mode: Mapped[str] = mapped_column(String(32), default="uniform")
 
     company: Mapped["Company"] = relationship(back_populates="mission_types")
     default_requirements: Mapped[List["MissionTypeRequirement"]] = relationship(

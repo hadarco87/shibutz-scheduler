@@ -5,7 +5,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta, time
 from typing import List, Optional, Tuple
 
-from app.models import RecurrenceKind, RecurringRestriction
+from app.models import RecurringRestriction
+from app.services.calendar_recurrence import day_matches_recurrence
 
 
 def _parse_hhmm(value: str) -> time:
@@ -44,26 +45,13 @@ def _day_matches(rule: RecurringRestriction, day: datetime) -> bool:
         if day > until:
             return False
 
-    if rule.kind == RecurrenceKind.DAILY:
-        return True
-
-    if rule.kind == RecurrenceKind.EVERY_N_DAYS:
-        interval = max(int(rule.interval_days or 1), 1)
-        anchor = (rule.anchor_date or rule.active_from or day).replace(
-            hour=0, minute=0, second=0, microsecond=0
-        )
-        day0 = day.replace(hour=0, minute=0, second=0, microsecond=0)
-        delta = (day0 - anchor).days
-        return delta >= 0 and delta % interval == 0
-
-    if rule.kind == RecurrenceKind.WEEKLY:
-        raw = (rule.weekdays or "").strip()
-        if not raw:
-            return False
-        days = {int(x.strip()) for x in raw.split(",") if x.strip() != ""}
-        return day.weekday() in days
-
-    return False
+    return day_matches_recurrence(
+        day,
+        rule.kind.value if hasattr(rule.kind, "value") else str(rule.kind),
+        interval_days=rule.interval_days or 1,
+        weekdays=rule.weekdays,
+        anchor_date=rule.anchor_date or rule.active_from,
+    )
 
 
 def recurring_windows_overlapping(

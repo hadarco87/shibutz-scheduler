@@ -181,20 +181,56 @@ def _assert_staffing_matches_requirements(
 
 def _assert_routine_fields(
     recurring: bool,
+    *,
+    hours_mode: Optional[str],
     start_hour: Optional[int],
     remainder_policy: Optional[str],
+    recurrence_kind: Optional[str],
+    interval_days: Optional[int],
+    weekdays: Optional[str],
+    anchor_date,
+    time_windows: Optional[list],
 ) -> None:
     if not recurring:
         return
-    if start_hour is None:
-        raise HTTPException(400, "למשימה רוטינית חובה לבחור שעת התחלה (0–23)")
-    if start_hour < 0 or start_hour > 23:
-        raise HTTPException(400, "שעת התחלה חייבת להיות בין 0 ל־23")
-    if remainder_policy is not None and remainder_policy not in (
-        "include_short",
-        "full_only",
-    ):
-        raise HTTPException(400, "מדיניות שארית לא חוקית")
+    mode = (hours_mode or "uniform").strip().lower()
+    if mode not in ("uniform", "custom"):
+        raise HTTPException(400, "מצב שעות רוטיני לא חוקי")
+    kind = (recurrence_kind or "daily").strip().lower()
+    if kind not in ("daily", "every_n_days", "weekly"):
+        raise HTTPException(400, "סוג תדירות לא חוקי")
+    if kind == "every_n_days":
+        interval = int(interval_days or 1)
+        if interval < 2:
+            raise HTTPException(400, "כל X ימים — X חייב להיות לפחות 2")
+        if anchor_date is None:
+            raise HTTPException(400, "כל X ימים — חובה לבחור תאריך עוגן")
+    if kind == "weekly":
+        raw = (weekdays or "").strip()
+        if not raw:
+            raise HTTPException(400, "בתדירות שבועית חובה לבחור לפחות יום אחד")
+        try:
+            days = {int(x.strip()) for x in raw.split(",") if x.strip() != ""}
+        except ValueError as e:
+            raise HTTPException(400, "ימי שבוע לא חוקיים") from e
+        if not days or any(d < 0 or d > 6 for d in days):
+            raise HTTPException(400, "ימי שבוע חייבים להיות בין 0 ל־6")
+    if mode == "uniform":
+        if start_hour is None:
+            raise HTTPException(400, "למשימה רוטינית במחזור אחיד חובה לבחור שעת התחלה")
+        if start_hour < 0 or start_hour > 23:
+            raise HTTPException(400, "שעת התחלה חייבת להיות בין 0 ל־23")
+        if remainder_policy is not None and remainder_policy not in (
+            "include_short",
+            "full_only",
+        ):
+            raise HTTPException(400, "מדיניות שארית לא חוקית")
+    else:
+        if not time_windows:
+            raise HTTPException(
+                400, "למשימה רוטינית עם משמרות מותאמות חובה להגדיר לפחות משמרת אחת"
+            )
+        _assert_time_windows(time_windows)
 
 
 def _assert_time_windows(windows: list) -> None:
@@ -323,6 +359,11 @@ def mission_type_out(mt: MissionType) -> MissionTypeOut:
         or 0.0,
         routine_remainder_policy=getattr(mt, "routine_remainder_policy", None)
         or "include_short",
+        recurrence_kind=getattr(mt, "recurrence_kind", None) or "daily",
+        recurrence_interval_days=getattr(mt, "recurrence_interval_days", None) or 1,
+        recurrence_weekdays=getattr(mt, "recurrence_weekdays", None),
+        recurrence_anchor_date=getattr(mt, "recurrence_anchor_date", None),
+        routine_hours_mode=getattr(mt, "routine_hours_mode", None) or "uniform",
         default_requirements=[
             MissionTypeRequirementOut(
                 id=r.id,
@@ -1338,21 +1379,45 @@ def create_mission_type(
     )
     data["recurring_end_hour"] = None
     if body.is_recurring_template:
+        hours_mode = body.routine_hours_mode or "uniform"
         _assert_routine_fields(
-            True, body.recurring_start_hour, body.routine_remainder_policy
+            True,
+            hours_mode=hours_mode,
+            start_hour=body.recurring_start_hour,
+            remainder_policy=body.routine_remainder_policy,
+            recurrence_kind=body.recurrence_kind,
+            interval_days=body.recurrence_interval_days,
+            weekdays=body.recurrence_weekdays,
+            anchor_date=body.recurrence_anchor_date,
+            time_windows=body.time_windows,
         )
+        if hours_mode == "uniform":
+            data["time_windows"] = []  # ignored below
+        else:
+            data["recurring_start_hour"] = None
     else:
         data["recurring_start_hour"] = None
+        data["recurrence_kind"] = "daily"
+        data["recurrence_interval_days"] = 1
+        data["recurrence_weekdays"] = None
+        data["recurrence_anchor_date"] = None
+        data["routine_hours_mode"] = "uniform"
         if body.time_windows:
             _assert_time_windows(body.time_windows)
-    mt = MissionType(company_id=user.company_id, is_active=True, **data)
+    mt = MissionType(company_id=user.company_id, is_active=True, **{
+        k: v for k, v in data.items() if k != "time_windows"
+    })
     db.add(mt)
     db.flush()
     for req in body.default_requirements:
         db.add(MissionTypeRequirement(mission_type_id=mt.id, **req.model_dump()))
     if body.is_recurring_template:
-        _replace_time_windows(db, mt.id, [])
-        _replace_staffing_bands(db, mt.id, body.staffing_bands)
+        if (body.routine_hours_mode or "uniform") == "custom":
+            _replace_time_windows(db, mt.id, body.time_windows)
+        else:
+            _replace_time_windows(db, mt.id, [])
+        if body.staffing_bands:
+            _replace_staffing_bands(db, mt.id, body.staffing_bands)
     else:
         _replace_time_windows(db, mt.id, body.time_windows)
         _replace_staffing_bands(db, mt.id, [])
@@ -1419,6 +1484,11 @@ def update_mission_type(
     )
     data["recurring_end_hour"] = None
     if recurring:
+        hours_mode = (
+            data["routine_hours_mode"]
+            if "routine_hours_mode" in data
+            else getattr(mt, "routine_hours_mode", None) or "uniform"
+        )
         start_hour = (
             data["recurring_start_hour"]
             if "recurring_start_hour" in data
@@ -1429,9 +1499,51 @@ def update_mission_type(
             if "routine_remainder_policy" in data
             else getattr(mt, "routine_remainder_policy", None)
         )
-        _assert_routine_fields(True, start_hour, policy)
+        kind = (
+            data["recurrence_kind"]
+            if "recurrence_kind" in data
+            else getattr(mt, "recurrence_kind", None) or "daily"
+        )
+        interval = (
+            data["recurrence_interval_days"]
+            if "recurrence_interval_days" in data
+            else getattr(mt, "recurrence_interval_days", None) or 1
+        )
+        weekdays = (
+            data["recurrence_weekdays"]
+            if "recurrence_weekdays" in data
+            else getattr(mt, "recurrence_weekdays", None)
+        )
+        anchor = (
+            data["recurrence_anchor_date"]
+            if "recurrence_anchor_date" in data
+            else getattr(mt, "recurrence_anchor_date", None)
+        )
+        windows_for_check = (
+            body.time_windows
+            if body.time_windows is not None
+            else list(getattr(mt, "time_windows", []) or [])
+        )
+        _assert_routine_fields(
+            True,
+            hours_mode=hours_mode,
+            start_hour=start_hour,
+            remainder_policy=policy,
+            recurrence_kind=kind,
+            interval_days=interval,
+            weekdays=weekdays,
+            anchor_date=anchor,
+            time_windows=windows_for_check,
+        )
+        if hours_mode == "custom":
+            data["recurring_start_hour"] = None
     else:
         data["recurring_start_hour"] = None
+        data["recurrence_kind"] = "daily"
+        data["recurrence_interval_days"] = 1
+        data["recurrence_weekdays"] = None
+        data["recurrence_anchor_date"] = None
+        data["routine_hours_mode"] = "uniform"
         if body.time_windows is not None:
             _assert_time_windows(body.time_windows)
         elif body.is_recurring_template is False:
@@ -1445,7 +1557,12 @@ def update_mission_type(
         for req in body.default_requirements:
             db.add(MissionTypeRequirement(mission_type_id=mt.id, **req.model_dump()))
     if recurring:
-        _replace_time_windows(db, mt.id, [])
+        hours_mode = getattr(mt, "routine_hours_mode", None) or "uniform"
+        if hours_mode == "custom":
+            if body.time_windows is not None:
+                _replace_time_windows(db, mt.id, body.time_windows)
+        else:
+            _replace_time_windows(db, mt.id, [])
         if body.staffing_bands is not None:
             _replace_staffing_bands(db, mt.id, body.staffing_bands)
     else:

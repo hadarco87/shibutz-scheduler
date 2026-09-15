@@ -193,17 +193,36 @@ export const api = {
       { method: "POST", body: JSON.stringify(body) },
       token
     ),
-  replacementCandidates: (
+  replacementCandidates: async (
     token: string,
     scheduleId: number,
     assignmentId: number,
     mode: "matching" | "all" = "matching"
-  ) =>
-    request<ReplacementOptions>(
+  ): Promise<ReplacementOptions> => {
+    const data = await request<ReplacementOptions | ReplacementCandidate[]>(
       `/schedules/${scheduleId}/assignments/${assignmentId}/replacements?mode=${mode}`,
       {},
       token
-    ),
+    );
+    // Harden against older API responses (plain array) so the UI never crashes.
+    if (Array.isArray(data)) {
+      return {
+        mode,
+        slot_label: "איוש",
+        empty_message: "אין חיילים זמינים למשבצת הזו כרגע",
+        candidates: data,
+      };
+    }
+    return {
+      mode: data.mode === "all" ? "all" : "matching",
+      slot_label: data.slot_label || "איוש",
+      required_role_name: data.required_role_name ?? null,
+      required_qualification_name: data.required_qualification_name ?? null,
+      empty_message:
+        data.empty_message || "אין חיילים זמינים למשבצת הזו כרגע",
+      candidates: Array.isArray(data.candidates) ? data.candidates : [],
+    };
+  },
   createMission: (token: string, body: object) =>
     request<Mission>("/missions", { method: "POST", body: JSON.stringify(body) }, token),
   updateMission: (token: string, id: number, body: object) =>
@@ -364,6 +383,11 @@ export type MissionType = {
   recurring_end_hour?: number | null;
   required_sleep_hours_before_after?: number;
   routine_remainder_policy?: "include_short" | "full_only";
+  recurrence_kind?: "daily" | "every_n_days" | "weekly";
+  recurrence_interval_days?: number;
+  recurrence_weekdays?: string | null;
+  recurrence_anchor_date?: string | null;
+  routine_hours_mode?: "uniform" | "custom";
   is_active: boolean;
   default_requirements: MissionTypeRequirement[];
   time_windows?: MissionTypeWindow[];

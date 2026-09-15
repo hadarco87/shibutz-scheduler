@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { AppShell } from "@/components/AppShell";
 import { useAuth } from "@/lib/auth";
 import { api, HistorySummary, Schedule } from "@/lib/api";
+import { assignmentsForMission } from "@/lib/assignmentOrder";
 
 const TYPE_COLORS = [
   "#2c5f8a",
@@ -307,8 +308,9 @@ export default function HistoryPage() {
               <div className="mission-list" style={{ marginTop: "1rem" }}>
                 <h3 style={{ marginTop: 0 }}>שיבוץ #{selected.id}</h3>
                 {selected.missions.map((m) => {
-                  const assigned = selected.assignments.filter(
-                    (a) => a.mission_id === m.id
+                  const assigned = assignmentsForMission(
+                    selected.assignments,
+                    m.id
                   );
                   return (
                     <article key={m.id} className="mission-card">

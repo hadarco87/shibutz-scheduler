@@ -17,13 +17,14 @@ import {
   SchedulingResult,
   ReplacementOptions,
 } from "@/lib/api";
-import { routineShiftsForWindow, resolveStaffingForStart, windowShiftsForRange } from "@/lib/routine";
+import { routineMissionsForWindow, resolveStaffingForStart, windowShiftsForRange } from "@/lib/routine";
 import {
   downloadBlob,
   elementToPdfBlob,
   schedulePdfFilename,
   sharePdfViaWhatsApp,
 } from "@/lib/schedulePdf";
+import { assignmentsForMission } from "@/lib/assignmentOrder";
 
 function formatRange(start: string, end: string) {
   const s = new Date(start);
@@ -270,25 +271,18 @@ export default function HomePage() {
     setError("");
     try {
       if (mt.is_recurring_template) {
-        if (mt.recurring_start_hour == null) {
+        const shifts = routineMissionsForWindow(
+          mt,
+          schedule.window_start,
+          schedule.window_end
+        );
+        if (!shifts.length) {
           setError(
-            `למשימה הרוטינית «${mt.name}» חסרה שעת התחלה — הגדירו בהגדרות`
+            `«${mt.name}» לא נופלת על חלון השיבוץ הזה לפי התדירות/השעות שהוגדרו`
           );
           return;
         }
-        await createMissions(
-          mt,
-          routineShiftsForWindow(
-            mt.default_duration_hours || 4,
-            mt.recurring_start_hour,
-            mt.routine_remainder_policy === "full_only"
-              ? "full_only"
-              : "include_short",
-            schedule.window_start,
-            schedule.window_end
-          ),
-          false
-        );
+        await createMissions(mt, shifts, false);
       } else {
         const windows = mt.time_windows || [];
         if (!windows.length) {
@@ -597,7 +591,7 @@ export default function HomePage() {
 
   async function onReplace(assignmentId: number) {
     if (!token || !schedule || !replacePersonId || !replaceOptions) return;
-    const selected = replaceOptions.candidates.find(
+    const selected = (replaceOptions.candidates ?? []).find(
       (c) => c.person_id === Number(replacePersonId)
     );
     if (!selected) return;
@@ -986,8 +980,9 @@ export default function HomePage() {
                         const left = pctInDay(dayBounds.start, dayBounds.end, ms);
                         const right = pctInDay(dayBounds.start, dayBounds.end, me);
                         const width = Math.max(1.2, right - left);
-                        const assigned = schedule.assignments.filter(
-                          (a) => a.mission_id === m.id
+                        const assigned = assignmentsForMission(
+                          schedule.assignments,
+                          m.id
                         );
                         return (
                           <div
@@ -1021,8 +1016,9 @@ export default function HomePage() {
 
             <div className="mission-list" style={{ marginTop: "1.25rem" }}>
               {missionsSorted.map((m) => {
-                const assigned = schedule.assignments.filter(
-                  (a) => a.mission_id === m.id
+                const assigned = assignmentsForMission(
+                  schedule.assignments,
+                  m.id
                 );
                 const understaffed = assigned.length < m.personnel_count;
                 return (
@@ -1130,37 +1126,45 @@ export default function HomePage() {
                             alignItems: "center",
                           }}
                         >
-                          {replaceLoading ? (
-                            <span style={{ color: "var(--ink-soft)" }}>
-                              {replaceMode === "matching"
-                                ? "טוען מועמדים מתאימים…"
-                                : "טוען את כל הכוח אדם הזמין…"}
-                            </span>
-                          ) : !replaceOptions ||
-                            replaceOptions.candidates.length === 0 ? (
-                            <span style={{ color: "var(--danger)" }}>
-                              {replaceOptions?.empty_message ||
-                                "אין חיילים זמינים למשבצת הזו כרגע"}
-                            </span>
-                          ) : (
-                            <select
-                              value={replacePersonId}
-                              onChange={(e) =>
-                                setReplacePersonId(
-                                  e.target.value ? Number(e.target.value) : ""
-                                )
-                              }
-                            >
-                              <option value="">בחרו חייל</option>
-                              {replaceOptions.candidates.map((p) => (
-                                <option key={p.person_id} value={p.person_id}>
-                                  {p.person_name}
-                                  {p.role_name ? ` (${p.role_name})` : ""}
-                                  {p.requires_override ? " — דורש עקיפה" : ""}
-                                </option>
-                              ))}
-                            </select>
-                          )}
+                          {(() => {
+                            const candidates = replaceOptions?.candidates ?? [];
+                            if (replaceLoading) {
+                              return (
+                                <span style={{ color: "var(--ink-soft)" }}>
+                                  {replaceMode === "matching"
+                                    ? "טוען מועמדים מתאימים…"
+                                    : "טוען את כל הכוח אדם הזמין…"}
+                                </span>
+                              );
+                            }
+                            if (candidates.length === 0) {
+                              return (
+                                <span style={{ color: "var(--danger)" }}>
+                                  {replaceOptions?.empty_message ||
+                                    "אין חיילים זמינים למשבצת הזו כרגע"}
+                                </span>
+                              );
+                            }
+                            return (
+                              <select
+                                value={replacePersonId}
+                                onChange={(e) =>
+                                  setReplacePersonId(
+                                    e.target.value ? Number(e.target.value) : ""
+                                  )
+                                }
+                              >
+                                <option value="">בחרו חייל</option>
+                                {candidates.map((p) => (
+                                  <option key={p.person_id} value={p.person_id}>
+                                    {p.person_name}
+                                    {p.role_name ? ` (${p.role_name})` : ""}
+                                    {p.requires_override ? " — דורש עקיפה" : ""}
+                                  </option>
+                                ))}
+                              </select>
+                            );
+                          })()}
                           <button
                             className="btn btn-primary btn-small"
                             type="button"
@@ -1168,8 +1172,7 @@ export default function HomePage() {
                               !replacePersonId ||
                               busy ||
                               replaceLoading ||
-                              !replaceOptions ||
-                              replaceOptions.candidates.length === 0
+                              !(replaceOptions?.candidates?.length)
                             }
                             onClick={() => onReplace(replaceFor)}
                           >

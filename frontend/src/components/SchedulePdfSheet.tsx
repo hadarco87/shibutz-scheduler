@@ -2,6 +2,7 @@
 
 import { forwardRef } from "react";
 import type { Assignment, Mission, Schedule } from "@/lib/api";
+import { assignmentsForMission } from "@/lib/assignmentOrder";
 
 const MISSION_COLORS = [
   "#3f5a32",
@@ -162,9 +163,7 @@ export const SchedulePdfSheet = forwardRef<HTMLDivElement, Props>(
         <section className="schedule-pdf-missions">
           <h2>פירוט משימות</h2>
           {missions.map((m) => {
-            const assigned = schedule.assignments.filter(
-              (a) => a.mission_id === m.id
-            );
+            const assigned = assignmentsForMission(schedule.assignments, m.id);
             const under = assigned.length < m.personnel_count;
             return (
               <article key={m.id} className="schedule-pdf-mission">

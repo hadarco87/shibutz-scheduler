@@ -238,6 +238,11 @@ class MissionTypeCreate(BaseModel):
     recurring_end_hour: Optional[int] = None
     required_sleep_hours_before_after: float = 0.0
     routine_remainder_policy: str = "include_short"
+    recurrence_kind: str = "daily"
+    recurrence_interval_days: int = 1
+    recurrence_weekdays: Optional[str] = None
+    recurrence_anchor_date: Optional[date] = None
+    routine_hours_mode: str = "uniform"
     default_requirements: List[MissionTypeRequirementIn] = Field(default_factory=list)
     time_windows: List[MissionTypeWindowIn] = Field(default_factory=list)
     staffing_bands: List[MissionTypeStaffingBandIn] = Field(default_factory=list)
@@ -255,6 +260,11 @@ class MissionTypeUpdate(BaseModel):
     recurring_end_hour: Optional[int] = None
     required_sleep_hours_before_after: Optional[float] = None
     routine_remainder_policy: Optional[str] = None
+    recurrence_kind: Optional[str] = None
+    recurrence_interval_days: Optional[int] = None
+    recurrence_weekdays: Optional[str] = None
+    recurrence_anchor_date: Optional[date] = None
+    routine_hours_mode: Optional[str] = None
     default_requirements: Optional[List[MissionTypeRequirementIn]] = None
     time_windows: Optional[List[MissionTypeWindowIn]] = None
     staffing_bands: Optional[List[MissionTypeStaffingBandIn]] = None
@@ -305,6 +315,11 @@ class MissionTypeOut(ORMModel):
     recurring_end_hour: Optional[int]
     required_sleep_hours_before_after: float = 0.0
     routine_remainder_policy: str = "include_short"
+    recurrence_kind: str = "daily"
+    recurrence_interval_days: int = 1
+    recurrence_weekdays: Optional[str] = None
+    recurrence_anchor_date: Optional[date] = None
+    routine_hours_mode: str = "uniform"
     default_requirements: List[MissionTypeRequirementOut] = Field(default_factory=list)
     time_windows: List[MissionTypeWindowOut] = Field(default_factory=list)
     staffing_bands: List[MissionTypeStaffingBandOut] = Field(default_factory=list)

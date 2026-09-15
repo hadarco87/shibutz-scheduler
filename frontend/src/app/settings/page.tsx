@@ -15,6 +15,7 @@ import {
   Qualification,
   Role,
 } from "@/lib/api";
+import { sortMissionRequirements } from "@/lib/assignmentOrder";
 import {
   buildRoutineSegments,
   formatMinute,
@@ -22,6 +23,8 @@ import {
   parseTimeToMinute,
   RemainderPolicy,
   routineCoversFullDay,
+  startAndDurationToWindow,
+  windowToDurationHours,
 } from "@/lib/routine";
 
 type ReqDraft = {
@@ -31,6 +34,7 @@ type ReqDraft = {
 };
 
 type WindowDraft = { start: string; end: string };
+type SegmentDraft = { start: string; durationHours: number };
 
 type BandDraft = {
   label: string;
@@ -39,6 +43,16 @@ type BandDraft = {
   personnel: number;
   reqs: ReqDraft[];
 };
+
+const HEB_WEEKDAYS: { label: string; py: number }[] = [
+  { label: "א׳", py: 6 },
+  { label: "ב׳", py: 0 },
+  { label: "ג׳", py: 1 },
+  { label: "ד׳", py: 2 },
+  { label: "ה׳", py: 3 },
+  { label: "ו׳", py: 4 },
+  { label: "ש׳", py: 5 },
+];
 
 export default function SettingsPage() {
   const { token } = useAuth();
@@ -66,6 +80,18 @@ export default function SettingsPage() {
   const [mtStartHour, setMtStartHour] = useState(8);
   const [mtRemainderPolicy, setMtRemainderPolicy] =
     useState<RemainderPolicy>("include_short");
+  const [mtRecurrenceKind, setMtRecurrenceKind] = useState<
+    "daily" | "every_n_days" | "weekly"
+  >("daily");
+  const [mtIntervalDays, setMtIntervalDays] = useState(3);
+  const [mtWeekdays, setMtWeekdays] = useState<number[]>([]);
+  const [mtAnchorDate, setMtAnchorDate] = useState("");
+  const [mtHoursMode, setMtHoursMode] = useState<"uniform" | "custom">(
+    "uniform"
+  );
+  const [mtSegments, setMtSegments] = useState<SegmentDraft[]>([
+    { start: "08:00", durationHours: 8 },
+  ]);
   const [mtSleep, setMtSleep] = useState(0);
   const [mtWindows, setMtWindows] = useState<WindowDraft[]>([
     { start: "05:30", end: "07:00" },
@@ -89,11 +115,28 @@ export default function SettingsPage() {
   const activeRoles = useMemo(() => roles.filter((r) => r.is_active), [roles]);
 
   const routinePreview = useMemo(() => {
-    if (!mtRecurring || mtDuration <= 0) return [];
+    if (!mtRecurring || mtHoursMode !== "uniform" || mtDuration <= 0) return [];
     return buildRoutineSegments(mtDuration, mtStartHour, mtRemainderPolicy);
-  }, [mtRecurring, mtDuration, mtStartHour, mtRemainderPolicy]);
+  }, [mtRecurring, mtHoursMode, mtDuration, mtStartHour, mtRemainderPolicy]);
 
-  const routineUneven = mtRecurring && !routineCoversFullDay(mtDuration);
+  const customPreview = useMemo(() => {
+    if (!mtRecurring || mtHoursMode !== "custom") return [];
+    return mtSegments
+      .map((s) => {
+        const sm = parseTimeToMinute(s.start);
+        if (sm == null || s.durationHours <= 0) return null;
+        const w = startAndDurationToWindow(sm, s.durationHours);
+        const startH = sm / 60;
+        const len = windowToDurationHours(w.start_minute, w.end_minute);
+        return formatSegmentLabel(startH, len);
+      })
+      .filter(Boolean) as string[];
+  }, [mtRecurring, mtHoursMode, mtSegments]);
+
+  const routineUneven =
+    mtRecurring &&
+    mtHoursMode === "uniform" &&
+    !routineCoversFullDay(mtDuration);
 
   const refresh = useCallback(async () => {
     if (!token) return;
@@ -242,9 +285,39 @@ export default function SettingsPage() {
     setMtRemainderPolicy(
       mt.routine_remainder_policy === "full_only" ? "full_only" : "include_short"
     );
+    const kind =
+      mt.recurrence_kind === "every_n_days" || mt.recurrence_kind === "weekly"
+        ? mt.recurrence_kind
+        : "daily";
+    setMtRecurrenceKind(kind);
+    setMtIntervalDays(Math.max(2, mt.recurrence_interval_days || 3));
+    setMtWeekdays(
+      (mt.recurrence_weekdays || "")
+        .split(",")
+        .map((x) => Number(x.trim()))
+        .filter((n) => Number.isFinite(n) && n >= 0 && n <= 6)
+    );
+    setMtAnchorDate(
+      mt.recurrence_anchor_date
+        ? String(mt.recurrence_anchor_date).slice(0, 10)
+        : ""
+    );
+    const hoursMode =
+      mt.routine_hours_mode === "custom" ? "custom" : "uniform";
+    setMtHoursMode(hoursMode);
+    if (hoursMode === "custom" && (mt.time_windows || []).length) {
+      setMtSegments(
+        (mt.time_windows || []).map((w) => ({
+          start: formatMinute(w.start_minute),
+          durationHours: windowToDurationHours(w.start_minute, w.end_minute),
+        }))
+      );
+    } else {
+      setMtSegments([{ start: "08:00", durationHours: mt.default_duration_hours || 8 }]);
+    }
     setMtSleep(mt.required_sleep_hours_before_after || 0);
     setMtWindows(
-      (mt.time_windows || []).length
+      !mt.is_recurring_template && (mt.time_windows || []).length
         ? (mt.time_windows || []).map((w) => ({
             start: formatMinute(w.start_minute),
             end: formatMinute(w.end_minute),
@@ -257,19 +330,23 @@ export default function SettingsPage() {
         start: formatMinute(b.start_minute),
         end: formatMinute(b.end_minute),
         personnel: b.personnel_count,
-        reqs: (b.requirements || []).map((r) => ({
-          roleId: (r.role_id || "") as number | "",
-          qualId: (r.qualification_id || "") as number | "",
-          count: r.count,
-        })),
+        reqs: sortMissionRequirements(b.requirements || [], resolveReqNames).map(
+          (r) => ({
+            roleId: (r.role_id || "") as number | "",
+            qualId: (r.qualification_id || "") as number | "",
+            count: r.count,
+          })
+        ),
       }))
     );
     setReqs(
-      (mt.default_requirements || []).map((r) => ({
-        roleId: (r.role_id || "") as number | "",
-        qualId: (r.qualification_id || "") as number | "",
-        count: r.count,
-      }))
+      sortMissionRequirements(mt.default_requirements || [], resolveReqNames).map(
+        (r) => ({
+          roleId: (r.role_id || "") as number | "",
+          qualId: (r.qualification_id || "") as number | "",
+          count: r.count,
+        })
+      )
     );
   }
 
@@ -347,22 +424,26 @@ export default function SettingsPage() {
     if (!token || !editingMtId) return;
     setError("");
     setOk("");
-    const default_requirements: MissionTypeRequirement[] = reqs
-      .map((r) => {
-        const roleId =
-          r.roleId !== ""
-            ? Number(r.roleId)
-            : activeRoles[0]?.id != null
-              ? activeRoles[0].id
-              : null;
-        const qualId = r.qualId !== "" ? Number(r.qualId) : null;
-        return {
-          role_id: roleId,
-          qualification_id: qualId,
-          count: r.count,
-        };
-      })
-      .filter((r) => r.role_id != null || r.qualification_id != null);
+    const default_requirements: MissionTypeRequirement[] =
+      sortMissionRequirements(
+        reqs
+          .map((r) => {
+            const roleId =
+              r.roleId !== ""
+                ? Number(r.roleId)
+                : activeRoles[0]?.id != null
+                  ? activeRoles[0].id
+                  : null;
+            const qualId = r.qualId !== "" ? Number(r.qualId) : null;
+            return {
+              role_id: roleId,
+              qualification_id: qualId,
+              count: r.count,
+            };
+          })
+          .filter((r) => r.role_id != null || r.qualification_id != null),
+        resolveReqNames
+      );
     const reqSum = default_requirements.reduce((s, r) => s + r.count, 0);
     const useBands = mtRecurring && mtBands.length > 0;
     if (!useBands && default_requirements.length && reqSum !== mtCount) {
@@ -371,8 +452,26 @@ export default function SettingsPage() {
       );
       return;
     }
-    if (mtRecurring && (mtStartHour < 0 || mtStartHour > 23)) {
+    if (
+      mtRecurring &&
+      mtHoursMode === "uniform" &&
+      (mtStartHour < 0 || mtStartHour > 23)
+    ) {
       setError("שעת התחלה חייבת להיות בין 0 ל־23");
+      return;
+    }
+    if (mtRecurring && mtRecurrenceKind === "every_n_days") {
+      if (mtIntervalDays < 2) {
+        setError("כל X ימים — X חייב להיות לפחות 2");
+        return;
+      }
+      if (!mtAnchorDate) {
+        setError("כל X ימים — חובה לבחור תאריך עוגן");
+        return;
+      }
+    }
+    if (mtRecurring && mtRecurrenceKind === "weekly" && mtWeekdays.length === 0) {
+      setError("בתדירות שבועית חובה לבחור לפחות יום אחד");
       return;
     }
     if (mtDifficulty < 1 || mtDifficulty > 5) {
@@ -398,6 +497,25 @@ export default function SettingsPage() {
       }
       if (!time_windows.length) {
         setError("למשימה שאינה רוטינית חובה להגדיר לפחות טווח שעות אחד");
+        return;
+      }
+    } else if (mtHoursMode === "custom") {
+      for (let i = 0; i < mtSegments.length; i++) {
+        const s = mtSegments[i];
+        const sm = parseTimeToMinute(s.start);
+        if (sm == null) {
+          setError(`משמרת ${i + 1}: הזינו שעת התחלה בפורמט HH:MM`);
+          return;
+        }
+        if (!(s.durationHours > 0)) {
+          setError(`משמרת ${i + 1}: משך חייב להיות גדול מ־0`);
+          return;
+        }
+        const w = startAndDurationToWindow(sm, s.durationHours);
+        time_windows.push({ ...w, sort_order: i });
+      }
+      if (!time_windows.length) {
+        setError("למשמרות מותאמות חובה להגדיר לפחות משמרת אחת");
         return;
       }
     }
@@ -426,18 +544,21 @@ export default function SettingsPage() {
           setError(`רצועה ${i + 1}: מספר אנשים חייב להיות לפחות 1`);
           return;
         }
-        const bandReqs = b.reqs
-          .map((r) => ({
-            role_id:
-              r.roleId !== ""
-                ? Number(r.roleId)
-                : activeRoles[0]?.id != null
-                  ? activeRoles[0].id
-                  : null,
-            qualification_id: r.qualId !== "" ? Number(r.qualId) : null,
-            count: r.count,
-          }))
-          .filter((r) => r.role_id != null || r.qualification_id != null);
+        const bandReqs = sortMissionRequirements(
+          b.reqs
+            .map((r) => ({
+              role_id:
+                r.roleId !== ""
+                  ? Number(r.roleId)
+                  : activeRoles[0]?.id != null
+                    ? activeRoles[0].id
+                    : null,
+              qualification_id: r.qualId !== "" ? Number(r.qualId) : null,
+              count: r.count,
+            }))
+            .filter((r) => r.role_id != null || r.qualification_id != null),
+          resolveReqNames
+        );
         const bandSum = bandReqs.reduce((s, r) => s + r.count, 0);
         if (bandReqs.length && bandSum !== b.personnel) {
           setError(
@@ -464,12 +585,31 @@ export default function SettingsPage() {
           : mtCount,
         default_duration_hours: mtDuration,
         is_recurring_template: mtRecurring,
-        recurring_start_hour: mtRecurring ? mtStartHour : null,
+        recurring_start_hour:
+          mtRecurring && mtHoursMode === "uniform" ? mtStartHour : null,
         recurring_end_hour: null,
-        routine_remainder_policy: mtRecurring ? mtRemainderPolicy : "include_short",
+        routine_remainder_policy:
+          mtRecurring && mtHoursMode === "uniform"
+            ? mtRemainderPolicy
+            : "include_short",
+        recurrence_kind: mtRecurring ? mtRecurrenceKind : "daily",
+        recurrence_interval_days:
+          mtRecurring && mtRecurrenceKind === "every_n_days"
+            ? mtIntervalDays
+            : 1,
+        recurrence_weekdays:
+          mtRecurring && mtRecurrenceKind === "weekly"
+            ? mtWeekdays.slice().sort((a, b) => a - b).join(",")
+            : null,
+        recurrence_anchor_date:
+          mtRecurring && mtRecurrenceKind === "every_n_days"
+            ? mtAnchorDate
+            : null,
+        routine_hours_mode: mtRecurring ? mtHoursMode : "uniform",
         required_sleep_hours_before_after: mtSleep,
         default_requirements: useBands ? [] : default_requirements,
-        time_windows: mtRecurring ? [] : time_windows,
+        time_windows:
+          !mtRecurring || mtHoursMode === "custom" ? time_windows : [],
         staffing_bands: mtRecurring ? staffing_bands : [],
       });
       setOk("סוג המשימה נשמר");
@@ -524,18 +664,22 @@ export default function SettingsPage() {
     return "תאריך ספציפי";
   }
 
+  function resolveReqNames(r: MissionTypeRequirement) {
+    return {
+      roleName: r.role_id
+        ? roles.find((x) => x.id === r.role_id)?.name || null
+        : null,
+      qualName: r.qualification_id
+        ? quals.find((x) => x.id === r.qualification_id)?.name || null
+        : null,
+    };
+  }
+
   function reqLabel(mt: MissionType) {
-    return (mt.default_requirements || [])
+    return sortMissionRequirements(mt.default_requirements || [], resolveReqNames)
       .map((r) => {
-        const parts: string[] = [];
-        if (r.role_id) {
-          const role = roles.find((x) => x.id === r.role_id);
-          if (role) parts.push(role.name);
-        }
-        if (r.qualification_id) {
-          const q = quals.find((x) => x.id === r.qualification_id);
-          if (q) parts.push(q.name);
-        }
+        const { roleName, qualName } = resolveReqNames(r);
+        const parts = [roleName, qualName].filter(Boolean) as string[];
         const name = parts.join("+") || "כללי";
         return r.count > 1 ? `${r.count}× ${name}` : name;
       })
@@ -1060,7 +1204,25 @@ export default function SettingsPage() {
                 </td>
                 <td>
                   {mt.is_recurring_template
-                    ? `כן · מ־${String(mt.recurring_start_hour ?? "—").padStart(2, "0")}:00 · כל ${mt.default_duration_hours || "—"} ש׳`
+                    ? [
+                        mt.recurrence_kind === "every_n_days"
+                          ? `כל ${mt.recurrence_interval_days || "?"} ימים`
+                          : mt.recurrence_kind === "weekly"
+                            ? `שבועי (${(mt.recurrence_weekdays || "")
+                                .split(",")
+                                .filter(Boolean)
+                                .map((d) => {
+                                  const hit = HEB_WEEKDAYS.find(
+                                    (x) => x.py === Number(d)
+                                  );
+                                  return hit?.label || d;
+                                })
+                                .join(" ") || "—"})`
+                            : "כל יום",
+                        mt.routine_hours_mode === "custom"
+                          ? `מותאם · ${(mt.time_windows || []).length} משמרות`
+                          : `מ־${String(mt.recurring_start_hour ?? "—").padStart(2, "0")}:00 · כל ${mt.default_duration_hours || "—"} ש׳`,
+                      ].join(" · ")
                     : (mt.time_windows || []).length
                       ? `לא · ${(mt.time_windows || [])
                           .map(
@@ -1192,9 +1354,10 @@ export default function SettingsPage() {
                               fontSize: "0.9rem",
                             }}
                           >
-                            רוטיני = משמרות שחוזרות ביום לפי שעת התחלה ומשך. לא
-                            רוטיני = טווחי שעות קבועים (למשל 05:30–07:00 ו־18:00–19:30),
-                            כולל חציית חצות.
+                            רוטיני = חוזרת לפי תדירות ימים (כל יום / כל X ימים /
+                            ימים בשבוע) ועם שעות אחידות או משמרות מותאמות. לא
+                            רוטיני = טווחי שעות קבועים בכל יום (למשל 05:30–07:00
+                            ו־18:00–19:30), כולל חציית חצות.
                           </p>
                           <div className="people-chips">
                             <button
@@ -1216,6 +1379,131 @@ export default function SettingsPage() {
 
                         {mtRecurring ? (
                           <>
+                            <div style={{ gridColumn: "1 / -1" }}>
+                              <div
+                                style={{
+                                  marginBottom: "0.4rem",
+                                  color: "var(--ink-soft)",
+                                }}
+                              >
+                                תדירות ימים
+                              </div>
+                              <div className="people-chips">
+                                <button
+                                  type="button"
+                                  className={`chip ${mtRecurrenceKind === "daily" ? "manual" : ""}`}
+                                  onClick={() => setMtRecurrenceKind("daily")}
+                                >
+                                  כל יום
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`chip ${mtRecurrenceKind === "every_n_days" ? "manual" : ""}`}
+                                  onClick={() =>
+                                    setMtRecurrenceKind("every_n_days")
+                                  }
+                                >
+                                  כל X ימים
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`chip ${mtRecurrenceKind === "weekly" ? "manual" : ""}`}
+                                  onClick={() => setMtRecurrenceKind("weekly")}
+                                >
+                                  ימים בשבוע
+                                </button>
+                              </div>
+                              {mtRecurrenceKind === "every_n_days" ? (
+                                <div
+                                  className="form-grid"
+                                  style={{
+                                    marginTop: "0.65rem",
+                                    gridTemplateColumns: "140px 1fr",
+                                  }}
+                                >
+                                  <label>
+                                    כל כמה ימים
+                                    <input
+                                      type="number"
+                                      min={2}
+                                      value={mtIntervalDays}
+                                      onChange={(e) =>
+                                        setMtIntervalDays(
+                                          Math.max(2, Number(e.target.value) || 2)
+                                        )
+                                      }
+                                    />
+                                  </label>
+                                  <label>
+                                    תאריך עוגן (חובה)
+                                    <input
+                                      type="date"
+                                      value={mtAnchorDate}
+                                      onChange={(e) =>
+                                        setMtAnchorDate(e.target.value)
+                                      }
+                                      required
+                                    />
+                                  </label>
+                                </div>
+                              ) : null}
+                              {mtRecurrenceKind === "weekly" ? (
+                                <div
+                                  className="people-chips"
+                                  style={{ marginTop: "0.65rem" }}
+                                >
+                                  {HEB_WEEKDAYS.map((d) => {
+                                    const on = mtWeekdays.includes(d.py);
+                                    return (
+                                      <button
+                                        key={d.py}
+                                        type="button"
+                                        className={`chip ${on ? "manual" : ""}`}
+                                        onClick={() =>
+                                          setMtWeekdays((prev) =>
+                                            on
+                                              ? prev.filter((x) => x !== d.py)
+                                              : [...prev, d.py]
+                                          )
+                                        }
+                                      >
+                                        {d.label}
+                                      </button>
+                                    );
+                                  })}
+                                </div>
+                              ) : null}
+                            </div>
+
+                            <div style={{ gridColumn: "1 / -1" }}>
+                              <div
+                                style={{
+                                  marginBottom: "0.4rem",
+                                  color: "var(--ink-soft)",
+                                }}
+                              >
+                                שעות ביום פעיל
+                              </div>
+                              <div className="people-chips">
+                                <button
+                                  type="button"
+                                  className={`chip ${mtHoursMode === "uniform" ? "manual" : ""}`}
+                                  onClick={() => setMtHoursMode("uniform")}
+                                >
+                                  מחזור אחיד
+                                </button>
+                                <button
+                                  type="button"
+                                  className={`chip ${mtHoursMode === "custom" ? "manual" : ""}`}
+                                  onClick={() => setMtHoursMode("custom")}
+                                >
+                                  משמרות מותאמות (משכים שונים)
+                                </button>
+                              </div>
+                            </div>
+
+                            {mtHoursMode === "uniform" ? (
+                              <>
                             <label>
                               משך משמרת (שעות)
                               <input
@@ -1342,6 +1630,100 @@ export default function SettingsPage() {
                                 </p>
                               ) : null}
                             </div>
+                              </>
+                            ) : (
+                              <div style={{ gridColumn: "1 / -1" }}>
+                                <p
+                                  style={{
+                                    margin: "0 0 0.55rem",
+                                    color: "var(--ink-soft)",
+                                    fontSize: "0.9rem",
+                                  }}
+                                >
+                                  הגדירו משמרות עם משכים שונים באותו יום פעיל
+                                  (למשל 08:00 ל־8 ש׳ ו־16:00 ל־10 ש׳).
+                                </p>
+                                {mtSegments.map((seg, idx) => (
+                                  <div
+                                    key={idx}
+                                    className="form-grid"
+                                    style={{
+                                      gridTemplateColumns: "1fr 120px auto",
+                                      marginBottom: "0.45rem",
+                                      alignItems: "end",
+                                    }}
+                                  >
+                                    <label>
+                                      שעת התחלה
+                                      <input
+                                        value={seg.start}
+                                        onChange={(e) => {
+                                          const next = [...mtSegments];
+                                          next[idx] = {
+                                            ...seg,
+                                            start: e.target.value,
+                                          };
+                                          setMtSegments(next);
+                                        }}
+                                        placeholder="08:00"
+                                      />
+                                    </label>
+                                    <label>
+                                      משך (שעות)
+                                      <input
+                                        type="number"
+                                        min={0.5}
+                                        step={0.5}
+                                        value={seg.durationHours}
+                                        onChange={(e) => {
+                                          const next = [...mtSegments];
+                                          next[idx] = {
+                                            ...seg,
+                                            durationHours: Number(e.target.value),
+                                          };
+                                          setMtSegments(next);
+                                        }}
+                                      />
+                                    </label>
+                                    <button
+                                      type="button"
+                                      className="btn btn-ghost btn-small"
+                                      disabled={mtSegments.length <= 1}
+                                      onClick={() =>
+                                        setMtSegments((prev) =>
+                                          prev.filter((_, i) => i !== idx)
+                                        )
+                                      }
+                                    >
+                                      הסר
+                                    </button>
+                                  </div>
+                                ))}
+                                <button
+                                  type="button"
+                                  className="btn btn-ghost btn-small"
+                                  onClick={() =>
+                                    setMtSegments((prev) => [
+                                      ...prev,
+                                      { start: "16:00", durationHours: 8 },
+                                    ])
+                                  }
+                                >
+                                  הוסף משמרת
+                                </button>
+                                {customPreview.length > 0 ? (
+                                  <p
+                                    style={{
+                                      margin: "0.65rem 0 0",
+                                      color: "var(--ink-soft)",
+                                      fontSize: "0.92rem",
+                                    }}
+                                  >
+                                    תצוגה מקדימה ליום: {customPreview.join(" · ")}
+                                  </p>
+                                ) : null}
+                              </div>
+                            )}
 
                             <div style={{ gridColumn: "1 / -1", marginTop: "0.75rem" }}>
                               <div

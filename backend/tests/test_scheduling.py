@@ -764,3 +764,64 @@ def test_prefer_soldier_on_open_qualification_slot(db, company_data):
     db.commit()
     assigned_ids = [a.person_id for a in result.schedule.assignments]
     assert assigned_ids == [soldier.id]
+
+
+def test_routine_every_n_days_and_custom_segments(db, company_data):
+    from datetime import date
+
+    from app.models import MissionTypeWindow
+    from app.services.scheduling import _instantiate_routine_type
+
+    mt = MissionType(
+        company_id=company_data["company"].id,
+        name="תורן מטבח",
+        difficulty_weight=2,
+        default_personnel_count=1,
+        is_recurring_template=True,
+        recurrence_kind="every_n_days",
+        recurrence_interval_days=3,
+        recurrence_anchor_date=date(2026, 9, 16),
+        routine_hours_mode="custom",
+        default_duration_hours=8,
+    )
+    db.add(mt)
+    db.flush()
+    db.add_all(
+        [
+            MissionTypeWindow(
+                mission_type_id=mt.id, start_minute=8 * 60, end_minute=16 * 60, sort_order=0
+            ),
+            MissionTypeWindow(
+                mission_type_id=mt.id, start_minute=16 * 60, end_minute=2 * 60, sort_order=1
+            ),
+        ]
+    )
+    schedule = Schedule(
+        company_id=company_data["company"].id,
+        window_start=datetime(2026, 9, 16, 0),
+        window_end=datetime(2026, 9, 17, 0),
+        status=ScheduleStatus.DRAFT,
+        created_by_id=company_data["user"].id,
+    )
+    db.add(schedule)
+    db.commit()
+    db.refresh(mt)
+
+    created = _instantiate_routine_type(db, schedule, mt)
+    assert len(created) == 2
+    assert created[0].start_at == datetime(2026, 9, 16, 8)
+    assert created[0].end_at == datetime(2026, 9, 16, 16)
+    assert created[1].start_at == datetime(2026, 9, 16, 16)
+    assert created[1].end_at == datetime(2026, 9, 17, 2)
+
+    # Next day in window should not match every-3-days
+    schedule2 = Schedule(
+        company_id=company_data["company"].id,
+        window_start=datetime(2026, 9, 17, 0),
+        window_end=datetime(2026, 9, 18, 0),
+        status=ScheduleStatus.DRAFT,
+        created_by_id=company_data["user"].id,
+    )
+    db.add(schedule2)
+    db.commit()
+    assert _instantiate_routine_type(db, schedule2, mt) == []

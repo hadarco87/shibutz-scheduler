@@ -69,11 +69,46 @@ def ensure_schema() -> None:
                     "DEFAULT 'include_short'"
                 )
             )
+        if "recurrence_kind" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE mission_types "
+                    "ADD COLUMN recurrence_kind VARCHAR(32) DEFAULT 'daily'"
+                )
+            )
+        if "recurrence_interval_days" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE mission_types "
+                    "ADD COLUMN recurrence_interval_days INTEGER DEFAULT 1"
+                )
+            )
+        if "recurrence_weekdays" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE mission_types "
+                    "ADD COLUMN recurrence_weekdays VARCHAR(50)"
+                )
+            )
+        if "recurrence_anchor_date" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE mission_types ADD COLUMN recurrence_anchor_date DATE"
+                )
+            )
+        if "routine_hours_mode" not in cols:
+            conn.execute(
+                text(
+                    "ALTER TABLE mission_types "
+                    "ADD COLUMN routine_hours_mode VARCHAR(32) DEFAULT 'uniform'"
+                )
+            )
         # Existing routine types need a start hour for the new day model
         conn.execute(
             text(
                 "UPDATE mission_types SET recurring_start_hour = 8 "
-                "WHERE is_recurring_template = 1 AND recurring_start_hour IS NULL"
+                "WHERE is_recurring_template = 1 AND recurring_start_hour IS NULL "
+                "AND (routine_hours_mode IS NULL OR routine_hours_mode = 'uniform')"
             )
         )
         schedule_cols = {

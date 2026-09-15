@@ -82,6 +82,7 @@ def instantiate_recurring_missions(
         db.query(MissionType)
         .options(
             joinedload(MissionType.default_requirements),
+            joinedload(MissionType.time_windows),
             joinedload(MissionType.staffing_bands).joinedload(
                 MissionTypeStaffingBand.requirements
             ),
@@ -253,22 +254,50 @@ def _add_mission_with_staffing(
 def _instantiate_routine_type(
     db: Session, schedule: Schedule, t: MissionType
 ) -> List[Mission]:
-    duration = float(t.default_duration_hours or 0)
-    if duration <= 0 or t.recurring_start_hour is None:
-        return []
-    policy = getattr(t, "routine_remainder_policy", None) or "include_short"
+    from app.services.calendar_recurrence import day_matches_recurrence
+    from app.services.windows import window_datetimes
+
     ws = schedule.window_start
     we = schedule.window_end
     day = ws.replace(hour=0, minute=0, second=0, microsecond=0)
     last_day = (we - timedelta(microseconds=1)).replace(
         hour=0, minute=0, second=0, microsecond=0
     )
+    kind = getattr(t, "recurrence_kind", None) or "daily"
+    hours_mode = getattr(t, "routine_hours_mode", None) or "uniform"
     created: List[Mission] = []
     d = day
     while d <= last_day:
-        for start, end in shifts_for_calendar_day(
-            d, duration, int(t.recurring_start_hour), policy
+        if not day_matches_recurrence(
+            d,
+            kind,
+            interval_days=getattr(t, "recurrence_interval_days", 1) or 1,
+            weekdays=getattr(t, "recurrence_weekdays", None),
+            anchor_date=getattr(t, "recurrence_anchor_date", None),
         ):
+            d += timedelta(days=1)
+            continue
+
+        shifts: List[Tuple[datetime, datetime]] = []
+        if hours_mode == "custom":
+            windows = sorted(
+                getattr(t, "time_windows", None) or [],
+                key=lambda w: (w.sort_order, w.id),
+            )
+            for w in windows:
+                start, end = window_datetimes(d, w.start_minute, w.end_minute)
+                shifts.append((start, end))
+        else:
+            duration = float(t.default_duration_hours or 0)
+            if duration <= 0 or t.recurring_start_hour is None:
+                d += timedelta(days=1)
+                continue
+            policy = getattr(t, "routine_remainder_policy", None) or "include_short"
+            shifts = shifts_for_calendar_day(
+                d, duration, int(t.recurring_start_hour), policy
+            )
+
+        for start, end in shifts:
             if not (ws <= start < we):
                 continue
             created.append(
@@ -349,8 +378,42 @@ def _pick_slot_failure_example(
 
 
 def _expand_slots(mission: Mission) -> List[MissionRequirement]:
+    """Expand requirements into individual slots, in a stable display/fill order.
+
+    Order: leadership roles → qualification slots → soldier/general slots.
+    """
+    def _slot_key(req: MissionRequirement) -> Tuple[int, int, str]:
+        role_name = ""
+        if getattr(req, "role", None) is not None and req.role:
+            role_name = req.role.name or ""
+        qual_name = ""
+        if getattr(req, "qualification", None) is not None and req.qualification:
+            qual_name = req.qualification.name or ""
+
+        if req.role_id and any(
+            token in role_name
+            for token in ("קצין", "מפקד", 'מ"פ', "מ״פ", "רס״פ", 'רס"פ', "זוטר", 'מש"ק', "מש״ק")
+        ):
+            bucket = 0
+            seniority = 0
+            if "קצין" in role_name:
+                seniority = 0
+            elif any(t in role_name for t in ('מ"פ', "מ״פ", "רס״פ", 'רס"פ')) or role_name == "מפקד":
+                seniority = 1
+            elif "מפקד" in role_name:
+                seniority = 2
+            else:
+                seniority = 3
+            return (bucket, seniority, role_name)
+        if req.qualification_id:
+            preferred = ["נהג", "חובש", "קשר", "צלף", "קלע", "מטול", "מאגיסט"]
+            idx = next((i for i, q in enumerate(preferred) if q in qual_name), 50)
+            return (1, idx, qual_name)
+        return (2, 0, role_name or "כללי")
+
+    ordered_reqs = sorted(list(mission.requirements or []), key=_slot_key)
     slots: List[MissionRequirement] = []
-    for req in mission.requirements:
+    for req in ordered_reqs:
         for _ in range(req.count):
             slots.append(req)
     while len(slots) < mission.personnel_count:
@@ -409,10 +472,12 @@ def _candidate_score(
     after_count_30d: int = 0,
     required_role_id: Optional[int] = None,
 ) -> float:
-    # Lower is better. Prefer fewer recent afters even over workload fairness.
+    # Lower is better.
+    # After = rest; prefer people who already rested (more afters) for missions,
+    # so those who haven't gotten after are less loaded with new missions.
     # Prefer soldiers over commanders/officers when the slot does not require them.
     return (
-        after_count_30d * 1000
+        -after_count_30d * 1000
         + workload * 100
         + _overqualification_cost(person, required_role_id) * 40
         + used_counts.get(person.id, 0) * 10
@@ -429,7 +494,10 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
 
     missions = (
         db.query(Mission)
-        .options(joinedload(Mission.requirements))
+        .options(
+            joinedload(Mission.requirements).joinedload(MissionRequirement.role),
+            joinedload(Mission.requirements).joinedload(MissionRequirement.qualification),
+        )
         .filter(Mission.schedule_id == schedule.id)
         .order_by(Mission.start_at.asc(), Mission.difficulty_weight.desc())
         .all()
