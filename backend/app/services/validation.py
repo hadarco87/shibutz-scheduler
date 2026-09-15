@@ -352,6 +352,19 @@ def validate_assignment(
             )
         )
 
+    from app.services.policy_rules import evaluate_scheduling_rules
+
+    violations.extend(
+        evaluate_scheduling_rules(
+            db,
+            company_id=company_id,
+            person=person,
+            mission=mission,
+            existing_assignments=existing_assignments,
+            missions_by_id=missions_by_id,
+        )
+    )
+
     if allow_override and override_reason:
         # Commander explicit override: keep violations as soft warnings for audit UX
         for v in violations:

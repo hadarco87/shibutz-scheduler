@@ -35,6 +35,10 @@ from app.models import (
     SchedulePlan,
     ScheduleStatus,
     SchedulingConstraint,
+    SchedulingRule,
+    SchedulingRuleBlockedType,
+    SchedulingRuleRole,
+    SchedulingRuleSourceType,
     User,
     UserRole,
     WorkloadEvent,
@@ -51,6 +55,9 @@ from app.schemas import (
     AssignmentReplace,
     ConstraintCreate,
     ConstraintOut,
+    SchedulingRuleCreate,
+    SchedulingRuleOut,
+    SchedulingRuleUpdate,
     KanimRuleCreate,
     KanimRuleOut,
     KanimRuleUpdate,
@@ -134,6 +141,7 @@ from app.services.plans import (
     load_plan,
     publish_plan,
 )
+from app.services.policy_rules import load_scheduling_rules
 from app.services.validation import validate_schedule
 
 router = APIRouter()
@@ -1908,6 +1916,206 @@ def create_constraint(
     db.commit()
     db.refresh(c)
     return c
+
+
+def scheduling_rule_out(rule: SchedulingRule) -> SchedulingRuleOut:
+    source_rows = sorted(rule.source_types, key=lambda r: r.mission_type_id)
+    blocked_rows = sorted(rule.blocked_types, key=lambda r: r.mission_type_id)
+    role_rows = sorted(rule.roles, key=lambda r: r.role_id)
+    return SchedulingRuleOut(
+        id=rule.id,
+        company_id=rule.company_id,
+        name=rule.name,
+        source_mission_type_ids=[r.mission_type_id for r in source_rows],
+        blocked_mission_type_ids=[r.mission_type_id for r in blocked_rows],
+        source_mission_type_names=[
+            r.mission_type.name if r.mission_type else str(r.mission_type_id)
+            for r in source_rows
+        ],
+        blocked_mission_type_names=[
+            r.mission_type.name if r.mission_type else str(r.mission_type_id)
+            for r in blocked_rows
+        ],
+        min_source_hours=rule.min_source_hours,
+        cooldown_hours=rule.cooldown_hours,
+        severity=rule.severity,
+        applies_to_all_roles=rule.applies_to_all_roles,
+        role_ids=[r.role_id for r in role_rows],
+        role_names=[r.role.name if r.role else str(r.role_id) for r in role_rows],
+        is_active=rule.is_active,
+    )
+
+
+def _set_rule_links(
+    db: Session,
+    rule: SchedulingRule,
+    *,
+    source_ids: List[int],
+    blocked_ids: List[int],
+    role_ids: List[int],
+    applies_to_all: bool,
+    company_id: int,
+) -> None:
+    types = {
+        t.id: t
+        for t in db.query(MissionType)
+        .filter(MissionType.company_id == company_id, MissionType.id.in_(source_ids + blocked_ids))
+        .all()
+    }
+    missing = [i for i in source_ids + blocked_ids if i not in types]
+    if missing:
+        raise HTTPException(400, "סוג משימה לא נמצא בכלל")
+    if not source_ids or not blocked_ids:
+        raise HTTPException(400, "יש לבחור לפחות סוג מקור אחד וסוג חסום אחד")
+
+    rule.source_types.clear()
+    rule.blocked_types.clear()
+    rule.roles.clear()
+    db.flush()
+    for mid in sorted(set(source_ids)):
+        rule.source_types.append(
+            SchedulingRuleSourceType(mission_type_id=mid)
+        )
+    for mid in sorted(set(blocked_ids)):
+        rule.blocked_types.append(
+            SchedulingRuleBlockedType(mission_type_id=mid)
+        )
+    if not applies_to_all:
+        if not role_ids:
+            raise HTTPException(400, "בחרו תפקידים או סמנו «כל כוח האדם»")
+        roles = {
+            r.id: r
+            for r in db.query(Role)
+            .filter(Role.company_id == company_id, Role.id.in_(role_ids))
+            .all()
+        }
+        missing_roles = [i for i in role_ids if i not in roles]
+        if missing_roles:
+            raise HTTPException(400, "תפקיד לא נמצא בכלל")
+        for rid in sorted(set(role_ids)):
+            rule.roles.append(SchedulingRuleRole(role_id=rid))
+
+
+@router.get("/scheduling-rules", response_model=List[SchedulingRuleOut])
+def list_scheduling_rules(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    return [scheduling_rule_out(r) for r in load_scheduling_rules(db, user.company_id)]
+
+
+@router.post("/scheduling-rules", response_model=SchedulingRuleOut)
+def create_scheduling_rule(
+    body: SchedulingRuleCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    rule = SchedulingRule(
+        company_id=user.company_id,
+        name=(body.name or "").strip() or None,
+        min_source_hours=body.min_source_hours,
+        cooldown_hours=body.cooldown_hours,
+        severity=body.severity,
+        applies_to_all_roles=body.applies_to_all_roles,
+        is_active=body.is_active,
+    )
+    db.add(rule)
+    db.flush()
+    try:
+        _set_rule_links(
+            db,
+            rule,
+            source_ids=body.source_mission_type_ids,
+            blocked_ids=body.blocked_mission_type_ids,
+            role_ids=body.role_ids,
+            applies_to_all=body.applies_to_all_roles,
+            company_id=user.company_id,
+        )
+    except HTTPException:
+        db.rollback()
+        raise
+    db.commit()
+    rules = load_scheduling_rules(db, user.company_id)
+    created = next(r for r in rules if r.id == rule.id)
+    return scheduling_rule_out(created)
+
+
+@router.put("/scheduling-rules/{rule_id}", response_model=SchedulingRuleOut)
+def update_scheduling_rule(
+    rule_id: int,
+    body: SchedulingRuleUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    rule = (
+        db.query(SchedulingRule)
+        .options(
+            joinedload(SchedulingRule.source_types),
+            joinedload(SchedulingRule.blocked_types),
+            joinedload(SchedulingRule.roles),
+        )
+        .filter(SchedulingRule.id == rule_id, SchedulingRule.company_id == user.company_id)
+        .first()
+    )
+    if not rule:
+        raise HTTPException(404, "כלל לא נמצא")
+    data = body.model_dump(exclude_unset=True)
+    if "name" in data:
+        rule.name = (data["name"] or "").strip() or None
+    if "min_source_hours" in data and data["min_source_hours"] is not None:
+        rule.min_source_hours = data["min_source_hours"]
+    if "cooldown_hours" in data and data["cooldown_hours"] is not None:
+        rule.cooldown_hours = data["cooldown_hours"]
+    if "severity" in data and data["severity"] is not None:
+        rule.severity = data["severity"]
+    if "is_active" in data and data["is_active"] is not None:
+        rule.is_active = data["is_active"]
+    if "applies_to_all_roles" in data and data["applies_to_all_roles"] is not None:
+        rule.applies_to_all_roles = data["applies_to_all_roles"]
+
+    source_ids = data.get("source_mission_type_ids")
+    blocked_ids = data.get("blocked_mission_type_ids")
+    role_ids = data.get("role_ids")
+    if (
+        source_ids is not None
+        or blocked_ids is not None
+        or role_ids is not None
+        or "applies_to_all_roles" in data
+    ):
+        _set_rule_links(
+            db,
+            rule,
+            source_ids=source_ids
+            if source_ids is not None
+            else [r.mission_type_id for r in rule.source_types],
+            blocked_ids=blocked_ids
+            if blocked_ids is not None
+            else [r.mission_type_id for r in rule.blocked_types],
+            role_ids=role_ids if role_ids is not None else [r.role_id for r in rule.roles],
+            applies_to_all=rule.applies_to_all_roles,
+            company_id=user.company_id,
+        )
+    db.commit()
+    rules = load_scheduling_rules(db, user.company_id)
+    updated = next(r for r in rules if r.id == rule_id)
+    return scheduling_rule_out(updated)
+
+
+@router.delete("/scheduling-rules/{rule_id}")
+def delete_scheduling_rule(
+    rule_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    rule = (
+        db.query(SchedulingRule)
+        .filter(SchedulingRule.id == rule_id, SchedulingRule.company_id == user.company_id)
+        .first()
+    )
+    if not rule:
+        raise HTTPException(404, "כלל לא נמצא")
+    db.delete(rule)
+    db.commit()
+    return {"ok": True}
 
 
 # ---------- schedules ----------

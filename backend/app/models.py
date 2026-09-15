@@ -99,6 +99,9 @@ class Company(Base, TimestampMixin):
     schedules: Mapped[List["Schedule"]] = relationship(back_populates="company")
     schedule_plans: Mapped[List["SchedulePlan"]] = relationship(back_populates="company")
     constraints: Mapped[List["SchedulingConstraint"]] = relationship(back_populates="company")
+    scheduling_rules: Mapped[List["SchedulingRule"]] = relationship(
+        back_populates="company", cascade="all, delete-orphan"
+    )
 
 
 class User(Base, TimestampMixin):
@@ -505,6 +508,90 @@ class SchedulingConstraint(Base, TimestampMixin):
     description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     company: Mapped["Company"] = relationship(back_populates="constraints")
+
+
+class SchedulingRule(Base, TimestampMixin):
+    """User-defined transition / cooldown rules between mission types."""
+
+    __tablename__ = "scheduling_rules"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(200), nullable=True)
+    min_source_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    cooldown_hours: Mapped[float] = mapped_column(Float, nullable=False, default=8.0)
+    severity: Mapped[ConstraintSeverity] = mapped_column(
+        Enum(ConstraintSeverity), default=ConstraintSeverity.HARD
+    )
+    applies_to_all_roles: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    company: Mapped["Company"] = relationship(back_populates="scheduling_rules")
+    source_types: Mapped[List["SchedulingRuleSourceType"]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan"
+    )
+    blocked_types: Mapped[List["SchedulingRuleBlockedType"]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan"
+    )
+    roles: Mapped[List["SchedulingRuleRole"]] = relationship(
+        back_populates="rule", cascade="all, delete-orphan"
+    )
+
+
+class SchedulingRuleSourceType(Base):
+    __tablename__ = "scheduling_rule_source_types"
+    __table_args__ = (
+        UniqueConstraint(
+            "rule_id", "mission_type_id", name="uq_scheduling_rule_source_type"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("scheduling_rules.id", ondelete="CASCADE"), nullable=False
+    )
+    mission_type_id: Mapped[int] = mapped_column(
+        ForeignKey("mission_types.id"), nullable=False
+    )
+
+    rule: Mapped["SchedulingRule"] = relationship(back_populates="source_types")
+    mission_type: Mapped["MissionType"] = relationship()
+
+
+class SchedulingRuleBlockedType(Base):
+    __tablename__ = "scheduling_rule_blocked_types"
+    __table_args__ = (
+        UniqueConstraint(
+            "rule_id", "mission_type_id", name="uq_scheduling_rule_blocked_type"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("scheduling_rules.id", ondelete="CASCADE"), nullable=False
+    )
+    mission_type_id: Mapped[int] = mapped_column(
+        ForeignKey("mission_types.id"), nullable=False
+    )
+
+    rule: Mapped["SchedulingRule"] = relationship(back_populates="blocked_types")
+    mission_type: Mapped["MissionType"] = relationship()
+
+
+class SchedulingRuleRole(Base):
+    __tablename__ = "scheduling_rule_roles"
+    __table_args__ = (
+        UniqueConstraint("rule_id", "role_id", name="uq_scheduling_rule_role"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    rule_id: Mapped[int] = mapped_column(
+        ForeignKey("scheduling_rules.id", ondelete="CASCADE"), nullable=False
+    )
+    role_id: Mapped[int] = mapped_column(ForeignKey("roles.id"), nullable=False)
+
+    rule: Mapped["SchedulingRule"] = relationship(back_populates="roles")
+    role: Mapped["Role"] = relationship()
 
 
 class SchedulePlan(Base, TimestampMixin):

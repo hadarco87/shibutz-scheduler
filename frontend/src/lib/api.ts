@@ -279,6 +279,22 @@ export const api = {
     request<KanimRule>(`/kanim-rules/${id}`, { method: "PUT", body: JSON.stringify(body) }, token),
   deleteKanimRule: (token: string, id: number) =>
     request(`/kanim-rules/${id}`, { method: "DELETE" }, token),
+  schedulingRules: (token: string) =>
+    request<SchedulingRule[]>("/scheduling-rules", {}, token),
+  createSchedulingRule: (token: string, body: object) =>
+    request<SchedulingRule>(
+      "/scheduling-rules",
+      { method: "POST", body: JSON.stringify(body) },
+      token
+    ),
+  updateSchedulingRule: (token: string, id: number, body: object) =>
+    request<SchedulingRule>(
+      `/scheduling-rules/${id}`,
+      { method: "PUT", body: JSON.stringify(body) },
+      token
+    ),
+  deleteSchedulingRule: (token: string, id: number) =>
+    request(`/scheduling-rules/${id}`, { method: "DELETE" }, token),
   afterPreview: (token: string, scheduleId: number) =>
     request<AfterPreview>(`/schedules/${scheduleId}/after`, {}, token),
   saveAfterDrafts: (token: string, scheduleId: number, items: AfterDraftItem[]) =>
@@ -437,6 +453,23 @@ export type KanimRule = {
   min_count: number;
   specific_date?: string | null;
   notes?: string | null;
+};
+
+export type SchedulingRule = {
+  id: number;
+  company_id: number;
+  name?: string | null;
+  source_mission_type_ids: number[];
+  blocked_mission_type_ids: number[];
+  source_mission_type_names: string[];
+  blocked_mission_type_names: string[];
+  min_source_hours: number;
+  cooldown_hours: number;
+  severity: "hard" | "soft";
+  applies_to_all_roles: boolean;
+  role_ids: number[];
+  role_names: string[];
+  is_active: boolean;
 };
 
 export type AfterDraftItem = {

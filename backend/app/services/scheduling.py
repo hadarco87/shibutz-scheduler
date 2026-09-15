@@ -544,6 +544,7 @@ def _candidate_score(
     used_counts: Dict[int, int],
     after_count_30d: int = 0,
     required_role_id: Optional[int] = None,
+    soft_rule_hits: int = 0,
 ) -> float:
     # Lower is better.
     # After = rest; prefer people who already rested (more afters) for missions,
@@ -554,6 +555,7 @@ def _candidate_score(
         + workload * 100
         + _overqualification_cost(person, required_role_id) * 40
         + used_counts.get(person.id, 0) * 10
+        + soft_rule_hits * 250
     )
 
 
@@ -646,6 +648,9 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
                     used_counts,
                     after_counts.get(person.id, 0),
                     required_role_id=slot.role_id,
+                    soft_rule_hits=sum(
+                        1 for v in result.soft_violations if v.code == "scheduling_rule"
+                    ),
                 )
                 candidates.append((score, person, result))
 

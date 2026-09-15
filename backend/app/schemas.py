@@ -480,6 +480,47 @@ class ConstraintOut(ORMModel):
     description: Optional[str]
 
 
+class SchedulingRuleCreate(BaseModel):
+    name: Optional[str] = None
+    source_mission_type_ids: List[int] = Field(default_factory=list, min_length=1)
+    blocked_mission_type_ids: List[int] = Field(default_factory=list, min_length=1)
+    min_source_hours: float = Field(default=8.0, gt=0, le=48)
+    cooldown_hours: float = Field(default=8.0, gt=0, le=72)
+    severity: ConstraintSeverity = ConstraintSeverity.HARD
+    applies_to_all_roles: bool = True
+    role_ids: List[int] = Field(default_factory=list)
+    is_active: bool = True
+
+
+class SchedulingRuleUpdate(BaseModel):
+    name: Optional[str] = None
+    source_mission_type_ids: Optional[List[int]] = None
+    blocked_mission_type_ids: Optional[List[int]] = None
+    min_source_hours: Optional[float] = Field(default=None, gt=0, le=48)
+    cooldown_hours: Optional[float] = Field(default=None, gt=0, le=72)
+    severity: Optional[ConstraintSeverity] = None
+    applies_to_all_roles: Optional[bool] = None
+    role_ids: Optional[List[int]] = None
+    is_active: Optional[bool] = None
+
+
+class SchedulingRuleOut(ORMModel):
+    id: int
+    company_id: int
+    name: Optional[str] = None
+    source_mission_type_ids: List[int] = Field(default_factory=list)
+    blocked_mission_type_ids: List[int] = Field(default_factory=list)
+    source_mission_type_names: List[str] = Field(default_factory=list)
+    blocked_mission_type_names: List[str] = Field(default_factory=list)
+    min_source_hours: float
+    cooldown_hours: float
+    severity: ConstraintSeverity
+    applies_to_all_roles: bool
+    role_ids: List[int] = Field(default_factory=list)
+    role_names: List[str] = Field(default_factory=list)
+    is_active: bool
+
+
 # Schedule
 class ScheduleCreate(BaseModel):
     window_start: datetime

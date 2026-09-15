@@ -266,6 +266,84 @@ textarea {
   font-weight: 600;
 }
 
+.busy-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 80;
+  display: grid;
+  place-items: center;
+  padding: 1.25rem;
+  background: rgba(28, 36, 24, 0.28);
+  backdrop-filter: blur(2px);
+  animation: busy-overlay-in 0.18s ease-out;
+}
+
+.busy-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  min-width: min(18rem, 100%);
+  max-width: 22rem;
+  padding: 1.35rem 1.5rem 1.25rem;
+  border-radius: 16px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 18px 40px rgba(28, 36, 24, 0.18);
+  text-align: center;
+}
+
+.busy-title {
+  margin: 0.35rem 0 0;
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--olive-deep);
+}
+
+.busy-message {
+  margin: 0;
+  font-size: 0.92rem;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.busy-spinner {
+  width: 2.35rem;
+  height: 2.35rem;
+  border-radius: 50%;
+  border: 3px solid rgba(63, 90, 50, 0.18);
+  border-top-color: var(--olive);
+  animation: busy-spin 0.75s linear infinite;
+}
+
+.busy-spinner-inline {
+  width: 1rem;
+  height: 1rem;
+  border-width: 2px;
+  flex-shrink: 0;
+}
+
+.btn-busy-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+@keyframes busy-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes busy-overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
 .text-link {
   border: none;
   background: none;
@@ -506,6 +584,57 @@ textarea {
 
 .chip.manual {
   background: var(--accent-soft);
+}
+
+.chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+button.chip {
+  border: 1px solid rgba(44, 63, 35, 0.16);
+  background: rgba(255, 255, 255, 0.75);
+  color: var(--ink);
+  cursor: pointer;
+  font: inherit;
+}
+
+button.chip.active {
+  background: rgba(63, 90, 50, 0.16);
+  border-color: rgba(63, 90, 50, 0.45);
+  color: var(--olive-deep);
+  font-weight: 600;
+}
+
+.rule-chip-fieldset {
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 0.75rem 0.9rem 0.9rem;
+  margin: 0;
+}
+
+.rule-chip-fieldset legend {
+  padding-inline: 0.35rem;
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.rule-preview {
+  margin: 0.25rem 0 0;
+  padding: 0.75rem 0.9rem;
+  border-radius: 12px;
+  background: rgba(63, 90, 50, 0.08);
+  color: var(--olive-deep);
+  font-size: 0.92rem;
+  line-height: 1.45;
+}
+
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.95rem;
 }
 
 .alert {

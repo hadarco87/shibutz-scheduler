@@ -14,6 +14,7 @@ import {
   MissionTypeRequirement,
   Qualification,
   Role,
+  SchedulingRule,
 } from "@/lib/api";
 import { sortMissionRequirements } from "@/lib/assignmentOrder";
 import {
@@ -106,6 +107,14 @@ export default function SettingsPage() {
   const [kanimCount, setKanimCount] = useState(12);
   const [kanimDate, setKanimDate] = useState("");
   const [kanimNotes, setKanimNotes] = useState("");
+  const [schedulingRules, setSchedulingRules] = useState<SchedulingRule[]>([]);
+  const [ruleSources, setRuleSources] = useState<number[]>([]);
+  const [ruleBlocked, setRuleBlocked] = useState<number[]>([]);
+  const [ruleMinHours, setRuleMinHours] = useState(8);
+  const [ruleCooldownHours, setRuleCooldownHours] = useState(8);
+  const [ruleSeverity, setRuleSeverity] = useState<"hard" | "soft">("hard");
+  const [ruleAllRoles, setRuleAllRoles] = useState(true);
+  const [ruleRoleIds, setRuleRoleIds] = useState<number[]>([]);
   const [members, setMembers] = useState<CompanyMember[]>([]);
   const [invites, setInvites] = useState<CompanyInvite[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -140,11 +149,12 @@ export default function SettingsPage() {
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [q, r, mt, kr, mem, inv] = await Promise.all([
+    const [q, r, mt, kr, sr, mem, inv] = await Promise.all([
       api.qualifications(token),
       api.roles(token),
       api.missionTypes(token),
       api.kanimRules(token),
+      api.schedulingRules(token),
       api.companyMembers(token),
       api.companyInvites(token),
     ]);
@@ -152,6 +162,7 @@ export default function SettingsPage() {
     setRoles(r);
     setMissionTypes(mt);
     setKanimRules(kr);
+    setSchedulingRules(sr);
     setMembers(mem);
     setInvites(inv);
   }, [token]);
@@ -658,6 +669,62 @@ export default function SettingsPage() {
     }
   }
 
+  function toggleId(list: number[], id: number) {
+    return list.includes(id) ? list.filter((x) => x !== id) : [...list, id];
+  }
+
+  function ruleSentencePreview() {
+    const sources =
+      ruleSources
+        .map((id) => missionTypes.find((m) => m.id === id)?.name)
+        .filter(Boolean)
+        .join(" / ") || "…";
+    const blocked =
+      ruleBlocked
+        .map((id) => missionTypes.find((m) => m.id === id)?.name)
+        .filter(Boolean)
+        .join(" / ") || "…";
+    const who = ruleAllRoles
+      ? "כל כוח האדם"
+      : ruleRoleIds
+          .map((id) => roles.find((r) => r.id === id)?.name)
+          .filter(Boolean)
+          .join(", ") || "תפקידים נבחרים";
+    return `אחרי ${sources} של לפחות ${ruleMinHours} שעות — לא לשבץ ל־${blocked} במשך ${ruleCooldownHours} שעות מסוף המשמרת · ${
+      ruleSeverity === "hard" ? "קשיח" : "רך"
+    } · ${who}`;
+  }
+
+  async function saveSchedulingRule(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    setError("");
+    setOk("");
+    try {
+      await api.createSchedulingRule(token, {
+        source_mission_type_ids: ruleSources,
+        blocked_mission_type_ids: ruleBlocked,
+        min_source_hours: ruleMinHours,
+        cooldown_hours: ruleCooldownHours,
+        severity: ruleSeverity,
+        applies_to_all_roles: ruleAllRoles,
+        role_ids: ruleAllRoles ? [] : ruleRoleIds,
+        is_active: true,
+      });
+      setRuleSources([]);
+      setRuleBlocked([]);
+      setRuleMinHours(8);
+      setRuleCooldownHours(8);
+      setRuleSeverity("hard");
+      setRuleAllRoles(true);
+      setRuleRoleIds([]);
+      setOk("כלל שיבוץ נשמר");
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "שגיאה");
+    }
+  }
+
   function kanimKindLabel(kind: KanimRule["kind"]) {
     if (kind === "weekday") return "ימי חול (א׳–ה׳)";
     if (kind === "weekend") return "סופ״ש (ו׳–ש׳)";
@@ -1153,6 +1220,204 @@ export default function SettingsPage() {
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </SettingsAccordion>
+
+      <SettingsAccordion
+        title="כללי שיבוץ"
+        hint="מנוחה, מעבר בין משימות ומדיניות"
+      >
+        <h2 style={{ marginTop: 0 }}>כללי שיבוץ</h2>
+        <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+          כאן מגדירים בשפה פשוטה מה מותר ומה אסור אחרי משמרת — למשל אחרי 8 שעות
+          ש״ג לא לשבץ לסיור ב־8 השעות הבאות. הכללים חלים גם בין ימים.
+        </p>
+
+        <form
+          className="form-grid"
+          onSubmit={saveSchedulingRule}
+          style={{ maxWidth: 640 }}
+        >
+          <fieldset className="rule-chip-fieldset">
+            <legend>אחרי משמרת מסוג</legend>
+            <div className="chip-row">
+              {missionTypes.map((mt) => {
+                const on = ruleSources.includes(mt.id);
+                return (
+                  <button
+                    key={`src-${mt.id}`}
+                    type="button"
+                    className={`chip${on ? " active" : ""}`}
+                    onClick={() => setRuleSources(toggleId(ruleSources, mt.id))}
+                  >
+                    {on ? "✓ " : ""}
+                    {mt.name}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <label>
+            של לפחות (שעות)
+            <input
+              type="number"
+              min={0.5}
+              step={0.5}
+              max={48}
+              value={ruleMinHours}
+              onChange={(e) => setRuleMinHours(Number(e.target.value))}
+              required
+            />
+          </label>
+
+          <fieldset className="rule-chip-fieldset">
+            <legend>לא לשבץ לסוגים האלה</legend>
+            <div className="chip-row">
+              {missionTypes.map((mt) => {
+                const on = ruleBlocked.includes(mt.id);
+                return (
+                  <button
+                    key={`blk-${mt.id}`}
+                    type="button"
+                    className={`chip${on ? " active" : ""}`}
+                    onClick={() => setRuleBlocked(toggleId(ruleBlocked, mt.id))}
+                  >
+                    {on ? "✓ " : ""}
+                    {mt.name}
+                  </button>
+                );
+              })}
+            </div>
+          </fieldset>
+
+          <label>
+            במשך (שעות מסוף המשמרת)
+            <input
+              type="number"
+              min={0.5}
+              step={0.5}
+              max={72}
+              value={ruleCooldownHours}
+              onChange={(e) => setRuleCooldownHours(Number(e.target.value))}
+              required
+            />
+          </label>
+
+          <label>
+            חומרת הכלל
+            <select
+              value={ruleSeverity}
+              onChange={(e) =>
+                setRuleSeverity(e.target.value as "hard" | "soft")
+              }
+            >
+              <option value="hard">קשיח — אסור לשבץ</option>
+              <option value="soft">רך — עדיפות נמוכה / אזהרה</option>
+            </select>
+          </label>
+
+          <label className="checkbox-row">
+            <input
+              type="checkbox"
+              checked={ruleAllRoles}
+              onChange={(e) => setRuleAllRoles(e.target.checked)}
+            />
+            חל על כל כוח האדם
+          </label>
+
+          {!ruleAllRoles ? (
+            <fieldset className="rule-chip-fieldset">
+              <legend>חל רק על התפקידים</legend>
+              <div className="chip-row">
+                {activeRoles.map((r) => {
+                  const on = ruleRoleIds.includes(r.id);
+                  return (
+                    <button
+                      key={`role-${r.id}`}
+                      type="button"
+                      className={`chip${on ? " active" : ""}`}
+                      onClick={() =>
+                        setRuleRoleIds(toggleId(ruleRoleIds, r.id))
+                      }
+                    >
+                      {on ? "✓ " : ""}
+                      {r.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </fieldset>
+          ) : null}
+
+          <p className="rule-preview">{ruleSentencePreview()}</p>
+
+          <button
+            className="btn btn-primary"
+            type="submit"
+            disabled={!ruleSources.length || !ruleBlocked.length}
+          >
+            שמור כלל שיבוץ
+          </button>
+        </form>
+
+        <table className="table" style={{ marginTop: "1rem" }}>
+          <thead>
+            <tr>
+              <th>הכלל</th>
+              <th>חומרה</th>
+              <th>חל על</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {schedulingRules.length === 0 ? (
+              <tr>
+                <td colSpan={4} style={{ color: "var(--ink-soft)" }}>
+                  עדיין אין כללים — הוסיפו את הראשון למעלה.
+                </td>
+              </tr>
+            ) : (
+              schedulingRules.map((r) => (
+                <tr key={r.id} style={{ opacity: r.is_active ? 1 : 0.55 }}>
+                  <td>
+                    אחרי{" "}
+                    <strong>{r.source_mission_type_names.join(" / ")}</strong> ≥
+                    {r.min_source_hours}ש׳ → חסום{" "}
+                    <strong>{r.blocked_mission_type_names.join(" / ")}</strong>{" "}
+                    ל־{r.cooldown_hours}ש׳
+                  </td>
+                  <td>{r.severity === "hard" ? "קשיח" : "רך"}</td>
+                  <td>
+                    {r.applies_to_all_roles
+                      ? "כולם"
+                      : r.role_names.join(", ") || "—"}
+                  </td>
+                  <td>
+                    <button
+                      className="btn btn-ghost btn-small"
+                      type="button"
+                      onClick={async () => {
+                        if (!token) return;
+                        const okConfirm = await confirm({
+                          title: "מחיקת כלל שיבוץ",
+                          message: "למחוק את הכלל?",
+                          confirmLabel: "מחק",
+                          tone: "danger",
+                        });
+                        if (!okConfirm) return;
+                        await api.deleteSchedulingRule(token, r.id);
+                        setOk("הכלל נמחק");
+                        await refresh();
+                      }}
+                    >
+                      מחק
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </SettingsAccordion>

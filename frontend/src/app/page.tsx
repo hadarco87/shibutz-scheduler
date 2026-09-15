@@ -122,6 +122,7 @@ export default function HomePage() {
   const [result, setResult] = useState<SchedulingResult | null>(null);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [busyMessage, setBusyMessage] = useState("מעבד נתונים…");
   const [pdfBusy, setPdfBusy] = useState(false);
   const [publishShareOpen, setPublishShareOpen] = useState(false);
   const [autoPdfAfterPublish, setAutoPdfAfterPublish] = useState(false);
@@ -305,7 +306,7 @@ export default function HomePage() {
       if (!ok) {
         return;
       }
-      setBusy(true);
+      startBusy("מעדכן משימות…");
       setError("");
       try {
         for (const m of existing) {
@@ -317,12 +318,12 @@ export default function HomePage() {
       } catch (e) {
         setError(e instanceof Error ? e.message : "עדכון משימות נכשל");
       } finally {
-        setBusy(false);
+        stopBusy();
       }
       return;
     }
 
-    setBusy(true);
+    startBusy("מעדכן משימות…");
     setError("");
     try {
       if (mt.is_recurring_template) {
@@ -359,14 +360,23 @@ export default function HomePage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "עדכון משימות נכשל");
     } finally {
-      setBusy(false);
+      stopBusy();
     }
+  }
+
+  function startBusy(message = "מעבד נתונים…") {
+    setBusyMessage(message);
+    setBusy(true);
+  }
+
+  function stopBusy() {
+    setBusy(false);
   }
 
   async function selectPlanDay(dayId: number) {
     if (!token || !plan) return;
     if (schedule?.id === dayId) return;
-    setBusy(true);
+    startBusy("טוען יום…");
     setError("");
     setResult(null);
     try {
@@ -374,7 +384,7 @@ export default function HomePage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "טעינת היום נכשלה");
     } finally {
-      setBusy(false);
+      stopBusy();
     }
   }
 
@@ -402,7 +412,7 @@ export default function HomePage() {
       });
       if (!ok) return null;
     }
-    setBusy(true);
+    startBusy("יוצר תוכנית שיבוץ…");
     setError("");
     setResult(null);
     try {
@@ -423,7 +433,7 @@ export default function HomePage() {
       setError(e instanceof Error ? e.message : "שגיאה");
       return null;
     } finally {
-      setBusy(false);
+      stopBusy();
     }
   }
 
@@ -477,7 +487,13 @@ export default function HomePage() {
       if (!ok) return;
     }
 
-    setBusy(true);
+    const schedulingLabel =
+      scope === "day"
+        ? "משבץ את היום הנוכחי…"
+        : wantDays > 1
+          ? `משבץ ${wantDays} ימים — זה עשוי לקחת כמה רגעים…`
+          : "משבץ עכשיו…";
+    startBusy(schedulingLabel);
     setError("");
     try {
       if (!matchedPlan) {
@@ -515,7 +531,7 @@ export default function HomePage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "שגיאה בשיבוץ");
     } finally {
-      setBusy(false);
+      stopBusy();
     }
   }
 
@@ -536,7 +552,7 @@ export default function HomePage() {
       tone: "accent",
     });
     if (!ok) return;
-    setBusy(true);
+    startBusy(multi ? "מפרסם את כל התקופה…" : "מפרסם שיבוץ…");
     setError("");
     try {
       if (plan) {
@@ -553,7 +569,7 @@ export default function HomePage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "פרסום נכשל");
     } finally {
-      setBusy(false);
+      stopBusy();
     }
   }
 
@@ -674,7 +690,7 @@ export default function HomePage() {
 
   async function saveAfterSelections() {
     if (!token || !schedule) return;
-    setBusy(true);
+    startBusy("שומר אפטר…");
     setError("");
     try {
       const items: AfterDraftItem[] = Object.entries(afterSelected).map(
@@ -689,7 +705,7 @@ export default function HomePage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "שמירת אפטר נכשלה");
     } finally {
-      setBusy(false);
+      stopBusy();
     }
   }
 
@@ -757,7 +773,7 @@ export default function HomePage() {
       overrideReason = `עקיפת דרישת משבצת (${slot})`;
     }
 
-    setBusy(true);
+    startBusy("מחליף משובץ…");
     setError("");
     try {
       await api.replaceAssignment(token, schedule.id, assignmentId, {
@@ -770,7 +786,7 @@ export default function HomePage() {
     } catch (e) {
       setError(e instanceof Error ? e.message : "החלפה נכשלה");
     } finally {
-      setBusy(false);
+      stopBusy();
     }
   }
 
@@ -854,6 +870,20 @@ export default function HomePage() {
 
   return (
     <AppShell>
+      {busy ? (
+        <div
+          className="busy-overlay"
+          role="status"
+          aria-live="polite"
+          aria-busy="true"
+        >
+          <div className="busy-card">
+            <span className="busy-spinner" aria-hidden />
+            <p className="busy-title">מעבד נתונים</p>
+            <p className="busy-message">{busyMessage}</p>
+          </div>
+        </div>
+      ) : null}
       <section className="panel">
         <div className="hero-actions">
           <div>
@@ -1006,7 +1036,14 @@ export default function HomePage() {
               disabled={busy}
               onClick={() => void onGeneratePlan("all_draft")}
             >
-              {generateButtonLabel()}
+              {busy && busyMessage.includes("משבץ") ? (
+                <span className="btn-busy-label">
+                  <span className="busy-spinner busy-spinner-inline" aria-hidden />
+                  משבץ…
+                </span>
+              ) : (
+                generateButtonLabel()
+              )}
             </button>
             {plan &&
             plan.status === "draft" &&
