@@ -47,78 +47,84 @@ def ensure_schema() -> None:
             if "phone" not in people_cols:
                 conn.execute(text("ALTER TABLE people ADD COLUMN phone VARCHAR(40)"))
 
-    if not settings.database_url.startswith("sqlite"):
-        return
-    with engine.begin() as conn:
-        cols = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(mission_types)")).fetchall()
-        }
-        if "required_sleep_hours_before_after" not in cols:
+    if "mission_types" in insp.get_table_names():
+        mt_cols = {c["name"] for c in insp.get_columns("mission_types")}
+        with engine.begin() as conn:
+            if "required_sleep_hours_before_after" not in mt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE mission_types "
+                        "ADD COLUMN required_sleep_hours_before_after FLOAT DEFAULT 0"
+                    )
+                )
+            if "routine_remainder_policy" not in mt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE mission_types "
+                        "ADD COLUMN routine_remainder_policy VARCHAR(32) "
+                        "DEFAULT 'include_short'"
+                    )
+                )
+            if "recurrence_kind" not in mt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE mission_types "
+                        "ADD COLUMN recurrence_kind VARCHAR(32) DEFAULT 'daily'"
+                    )
+                )
+            if "recurrence_interval_days" not in mt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE mission_types "
+                        "ADD COLUMN recurrence_interval_days INTEGER DEFAULT 1"
+                    )
+                )
+            if "recurrence_weekdays" not in mt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE mission_types "
+                        "ADD COLUMN recurrence_weekdays VARCHAR(50)"
+                    )
+                )
+            if "recurrence_anchor_date" not in mt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE mission_types ADD COLUMN recurrence_anchor_date DATE"
+                    )
+                )
+            if "routine_hours_mode" not in mt_cols:
+                conn.execute(
+                    text(
+                        "ALTER TABLE mission_types "
+                        "ADD COLUMN routine_hours_mode VARCHAR(32) DEFAULT 'uniform'"
+                    )
+                )
+            # Existing routine types need a start hour for the new day model
             conn.execute(
                 text(
-                    "ALTER TABLE mission_types "
-                    "ADD COLUMN required_sleep_hours_before_after FLOAT DEFAULT 0"
+                    "UPDATE mission_types SET recurring_start_hour = 8 "
+                    "WHERE is_recurring_template = :is_recurring "
+                    "AND recurring_start_hour IS NULL "
+                    "AND (routine_hours_mode IS NULL OR routine_hours_mode = 'uniform')"
+                ),
+                {"is_recurring": True},
+            )
+
+    if "schedules" in insp.get_table_names():
+        schedule_cols = {c["name"] for c in insp.get_columns("schedules")}
+        with engine.begin() as conn:
+            if "share_token" not in schedule_cols:
+                conn.execute(
+                    text("ALTER TABLE schedules ADD COLUMN share_token VARCHAR(64)")
                 )
-            )
-        if "routine_remainder_policy" not in cols:
-            conn.execute(
-                text(
-                    "ALTER TABLE mission_types "
-                    "ADD COLUMN routine_remainder_policy VARCHAR(32) "
-                    "DEFAULT 'include_short'"
+            if "plan_id" not in schedule_cols:
+                conn.execute(
+                    text("ALTER TABLE schedules ADD COLUMN plan_id INTEGER")
                 )
-            )
-        if "recurrence_kind" not in cols:
-            conn.execute(
-                text(
-                    "ALTER TABLE mission_types "
-                    "ADD COLUMN recurrence_kind VARCHAR(32) DEFAULT 'daily'"
+            if "day_index" not in schedule_cols:
+                conn.execute(
+                    text("ALTER TABLE schedules ADD COLUMN day_index INTEGER DEFAULT 0")
                 )
-            )
-        if "recurrence_interval_days" not in cols:
-            conn.execute(
-                text(
-                    "ALTER TABLE mission_types "
-                    "ADD COLUMN recurrence_interval_days INTEGER DEFAULT 1"
-                )
-            )
-        if "recurrence_weekdays" not in cols:
-            conn.execute(
-                text(
-                    "ALTER TABLE mission_types "
-                    "ADD COLUMN recurrence_weekdays VARCHAR(50)"
-                )
-            )
-        if "recurrence_anchor_date" not in cols:
-            conn.execute(
-                text(
-                    "ALTER TABLE mission_types ADD COLUMN recurrence_anchor_date DATE"
-                )
-            )
-        if "routine_hours_mode" not in cols:
-            conn.execute(
-                text(
-                    "ALTER TABLE mission_types "
-                    "ADD COLUMN routine_hours_mode VARCHAR(32) DEFAULT 'uniform'"
-                )
-            )
-        # Existing routine types need a start hour for the new day model
-        conn.execute(
-            text(
-                "UPDATE mission_types SET recurring_start_hour = 8 "
-                "WHERE is_recurring_template = 1 AND recurring_start_hour IS NULL "
-                "AND (routine_hours_mode IS NULL OR routine_hours_mode = 'uniform')"
-            )
-        )
-        schedule_cols = {
-            row[1]
-            for row in conn.execute(text("PRAGMA table_info(schedules)")).fetchall()
-        }
-        if "share_token" not in schedule_cols:
-            conn.execute(
-                text("ALTER TABLE schedules ADD COLUMN share_token VARCHAR(64)")
-            )
 
 
 def get_db():
