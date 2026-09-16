@@ -56,7 +56,7 @@ export default function WorkloadPage() {
         <p style={{ color: "var(--ink-soft)" }}>
           מדד העומס = קושי המשימה × שעות שירות.
           מבוסס רק על שיבוצים שפורסמו — טיוטות לא משפיעות.
-          העבירו עכבר על שם משימה כדי לראות את רמת הקושי שלה.
+          מתחת לשם כל משימה מופיע הקושי שלה (למשל 4/5).
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
       </section>
@@ -73,8 +73,21 @@ export default function WorkloadPage() {
                     ? `קושי ${formatDifficulty(difficulty)}/${formatDifficulty(maxDifficulty)}`
                     : undefined;
                 return (
-                  <th key={t} title={tip} style={{ cursor: tip ? "help" : undefined }}>
-                    {t}
+                  <th key={t} title={tip}>
+                    {difficulty != null ? (
+                      <div
+                        style={{
+                          marginBottom: "0.15rem",
+                          fontSize: "0.78rem",
+                          fontWeight: 600,
+                          color: "var(--ink-soft)",
+                        }}
+                      >
+                        {formatDifficulty(difficulty)}/
+                        {formatDifficulty(maxDifficulty)}
+                      </div>
+                    ) : null}
+                    <div>{t}</div>
                   </th>
                 );
               })}

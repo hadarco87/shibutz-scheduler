@@ -637,6 +637,20 @@ button.chip.active {
   font-size: 0.95rem;
 }
 
+.form-grid label.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--ink);
+}
+
+.form-grid label.checkbox-row input[type="checkbox"] {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  accent-color: var(--olive);
+}
+
 .alert {
   border-radius: 12px;
   padding: 0.8rem 1rem;

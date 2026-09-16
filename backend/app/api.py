@@ -2836,9 +2836,10 @@ def workload_dashboard(
 ):
     people = (
         db.query(Person)
-        .filter(Person.company_id == user.company_id, Person.is_active.is_(True))
+        .filter(Person.company_id == user.company_id)
         .all()
     )
+    active_ids = {p.id for p in people if p.is_active}
     events = (
         db.query(WorkloadEvent)
         .filter(WorkloadEvent.company_id == user.company_id)
@@ -2848,7 +2849,10 @@ def workload_dashboard(
         mt.id: mt.name
         for mt in db.query(MissionType).filter(MissionType.company_id == user.company_id)
     }
-    by_person = {p.id: {"total": 0.0, "by_type": {}} for p in people}
+    # Start with active people so zeros appear; inactive with history are added below.
+    by_person = {
+        p.id: {"total": 0.0, "by_type": {}} for p in people if p.is_active
+    }
     for e in events:
         if e.person_id not in by_person:
             by_person[e.person_id] = {"total": 0.0, "by_type": {}}
@@ -2858,10 +2862,19 @@ def workload_dashboard(
             by_person[e.person_id]["by_type"].get(name, 0.0) + e.delta
         )
     name_by_id = {p.id: p.full_name for p in people}
+
+    def _display_name(pid: int) -> str:
+        name = name_by_id.get(pid)
+        if name and pid in active_ids:
+            return name
+        if name:
+            return f"{name} · מושעה"
+        return f"חייל #{pid} (לא זמין)"
+
     rows = [
         WorkloadPersonOut(
             person_id=pid,
-            person_name=name_by_id.get(pid, f"#{pid}"),
+            person_name=_display_name(pid),
             total=data["total"],
             by_mission_type=data["by_type"],
         )
