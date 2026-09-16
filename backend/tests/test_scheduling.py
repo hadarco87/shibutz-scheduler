@@ -16,6 +16,7 @@ from app.models import (
     Mission,
     MissionRequirement,
     MissionType,
+    MissionTypeRequirement,
     Person,
     PersonQualification,
     Qualification,
@@ -825,3 +826,86 @@ def test_routine_every_n_days_and_custom_segments(db, company_data):
     db.add(schedule2)
     db.commit()
     assert _instantiate_routine_type(db, schedule2, mt) == []
+
+
+def test_generate_rebuilds_missions_from_updated_type_settings(db, company_data):
+    """«שבץ אותי» must drop stale uniform shifts after switching to custom windows."""
+    from datetime import date
+
+    from app.models import MissionTypeWindow
+    from app.services.scheduling import _instantiate_routine_type
+
+    mt = MissionType(
+        company_id=company_data["company"].id,
+        name="תורן מטבח",
+        difficulty_weight=2,
+        default_personnel_count=1,
+        is_recurring_template=True,
+        recurrence_kind="every_n_days",
+        recurrence_interval_days=4,
+        recurrence_anchor_date=date(2026, 9, 17),
+        routine_hours_mode="uniform",
+        default_duration_hours=12,
+        recurring_start_hour=8,
+    )
+    db.add(mt)
+    db.flush()
+    db.add(
+        MissionTypeRequirement(
+            mission_type_id=mt.id,
+            role_id=company_data["soldier"].id,
+            count=1,
+        )
+    )
+    for i in range(3):
+        db.add(
+            Person(
+                company_id=company_data["company"].id,
+                full_name=f"Kitchen{i}",
+                role_id=company_data["soldier"].id,
+            )
+        )
+    schedule = Schedule(
+        company_id=company_data["company"].id,
+        window_start=datetime(2026, 9, 17, 0),
+        window_end=datetime(2026, 9, 18, 0),
+        status=ScheduleStatus.DRAFT,
+        created_by_id=company_data["user"].id,
+    )
+    db.add(schedule)
+    db.commit()
+    db.refresh(mt)
+
+    stale = _instantiate_routine_type(db, schedule, mt)
+    db.commit()
+    assert len(stale) == 2
+    assert stale[0].start_at == datetime(2026, 9, 17, 8)
+    assert stale[1].start_at == datetime(2026, 9, 17, 20)
+
+    mt.routine_hours_mode = "custom"
+    mt.recurring_start_hour = None
+    db.add(
+        MissionTypeWindow(
+            mission_type_id=mt.id,
+            start_minute=8 * 60,
+            end_minute=20 * 60,
+            sort_order=0,
+        )
+    )
+    db.commit()
+    db.refresh(mt)
+
+    generate_schedule(db, schedule, user_id=company_data["user"].id)
+
+    missions = (
+        db.query(Mission)
+        .filter(Mission.schedule_id == schedule.id, Mission.mission_type_id == mt.id)
+        .order_by(Mission.start_at.asc())
+        .all()
+    )
+    assert len(missions) == 1
+    assert missions[0].start_at == datetime(2026, 9, 17, 8)
+    assert missions[0].end_at == datetime(2026, 9, 17, 20)
+    assert (
+        db.query(Assignment).filter(Assignment.schedule_id == schedule.id).count() == 1
+    )

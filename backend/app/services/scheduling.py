@@ -213,6 +213,81 @@ def instantiate_active_mission_types(
     return created
 
 
+def rebuild_template_missions_for_schedule(
+    db: Session,
+    schedule: Schedule,
+) -> List[Mission]:
+    """Replace regenerable draft missions with fresh slots from current type settings.
+
+    Keeps which regenerable mission types are already on the draft (chip selection),
+    but recreates their time windows from the live MissionType config — so «שבץ אותי»
+    never keeps stale shifts after settings change.
+
+    Preserved:
+    - ad-hoc missions
+    - missions whose type cannot be auto-instantiated (no routine template / no windows)
+    """
+    type_ids = [
+        row[0]
+        for row in db.query(Mission.mission_type_id)
+        .filter(
+            Mission.schedule_id == schedule.id,
+            Mission.is_adhoc.is_(False),
+        )
+        .distinct()
+        .all()
+    ]
+    if not type_ids:
+        return []
+
+    templates = (
+        db.query(MissionType)
+        .options(
+            joinedload(MissionType.default_requirements),
+            joinedload(MissionType.time_windows),
+            joinedload(MissionType.staffing_bands).joinedload(
+                MissionTypeStaffingBand.requirements
+            ),
+        )
+        .filter(
+            MissionType.id.in_(type_ids),
+            MissionType.is_active.is_(True),
+        )
+        .all()
+    )
+    regenerable = [
+        t
+        for t in templates
+        if t.is_recurring_template
+        or bool(getattr(t, "time_windows", None))
+    ]
+    if not regenerable:
+        return []
+
+    regenerable_ids = {t.id for t in regenerable}
+    stale = (
+        db.query(Mission)
+        .filter(
+            Mission.schedule_id == schedule.id,
+            Mission.is_adhoc.is_(False),
+            Mission.mission_type_id.in_(regenerable_ids),
+        )
+        .all()
+    )
+    for mission in stale:
+        db.delete(mission)
+    db.flush()
+
+    created: List[Mission] = []
+    for t in regenerable:
+        if t.is_recurring_template:
+            created.extend(_instantiate_routine_type(db, schedule, t))
+        else:
+            created.extend(_instantiate_window_type(db, schedule, t))
+    db.flush()
+    return created
+
+
 def sync_mission_type_to_drafts(db: Session, mt: MissionType) -> int:
     """Add a newly configured active type into existing draft schedules (no dupes)."""
     if not mt.is_active:
@@ -563,9 +638,11 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
     if schedule.status == ScheduleStatus.PUBLISHED:
         raise ValueError("לא ניתן לשבץ מחדש שיבוץ שפורסם")
 
-    # Clear previous draft assignments only
+    # Clear previous draft assignments, then rebuild template missions from
+    # current settings so stale shifts (e.g. old uniform fill) do not survive.
     db.query(Assignment).filter(Assignment.schedule_id == schedule.id).delete()
     db.flush()
+    rebuild_template_missions_for_schedule(db, schedule)
 
     missions = (
         db.query(Mission)
