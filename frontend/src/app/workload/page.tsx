@@ -30,10 +30,7 @@ export default function WorkloadPage() {
     [data]
   );
 
-  const maxDifficulty = useMemo(
-    () => Math.max(1, ...catalog.map((t) => t.difficulty_weight), 1),
-    [catalog]
-  );
+  const maxDifficulty = 5;
 
   const difficultyByName = useMemo(() => {
     const map = new Map<string, number>();
@@ -56,7 +53,7 @@ export default function WorkloadPage() {
         <p style={{ color: "var(--ink-soft)" }}>
           מדד העומס = קושי המשימה × שעות שירות.
           מבוסס רק על שיבוצים שפורסמו — טיוטות לא משפיעות.
-          מתחת לשם כל משימה מופיע הקושי שלה (למשל 4/5).
+          מעל שם כל משימה מופיע הקושי שלה (למשל 4/5).
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
       </section>

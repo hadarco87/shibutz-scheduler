@@ -237,7 +237,7 @@ class MissionTypeCreate(BaseModel):
     name: str
     description: Optional[str] = None
     default_duration_hours: float = 8.0
-    difficulty_weight: float = 1.0
+    difficulty_weight: float = Field(default=1.0, ge=1, le=5)
     default_personnel_count: int = 1
     is_recurring_template: bool = False
     recurring_start_hour: Optional[int] = None
@@ -258,7 +258,7 @@ class MissionTypeUpdate(BaseModel):
     name: Optional[str] = None
     description: Optional[str] = None
     default_duration_hours: Optional[float] = None
-    difficulty_weight: Optional[float] = None
+    difficulty_weight: Optional[float] = Field(default=None, ge=1, le=5)
     default_personnel_count: Optional[int] = None
     is_active: Optional[bool] = None
     is_recurring_template: Optional[bool] = None
@@ -427,7 +427,7 @@ class MissionCreate(BaseModel):
     name: str
     start_at: datetime
     end_at: datetime
-    difficulty_weight: Optional[float] = None
+    difficulty_weight: Optional[float] = Field(default=None, ge=1, le=5)
     personnel_count: Optional[int] = None
     notes: Optional[str] = None
     is_adhoc: bool = False
@@ -439,7 +439,7 @@ class MissionUpdate(BaseModel):
     name: Optional[str] = None
     start_at: Optional[datetime] = None
     end_at: Optional[datetime] = None
-    difficulty_weight: Optional[float] = None
+    difficulty_weight: Optional[float] = Field(default=None, ge=1, le=5)
     personnel_count: Optional[int] = None
     notes: Optional[str] = None
     is_adhoc: Optional[bool] = None
