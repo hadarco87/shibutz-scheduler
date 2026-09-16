@@ -1878,6 +1878,11 @@ def update_mission(
     for k, v in data.items():
         setattr(mission, k, v)
     if body.requirements is not None:
+        old_req_ids = [r.id for r in mission.requirements]
+        if old_req_ids:
+            db.query(Assignment).filter(Assignment.requirement_id.in_(old_req_ids)).update(
+                {"requirement_id": None}, synchronize_session=False
+            )
         db.query(MissionRequirement).filter(MissionRequirement.mission_id == mission.id).delete()
         for req in body.requirements:
             db.add(MissionRequirement(mission_id=mission.id, **req.model_dump()))
@@ -1908,6 +1913,9 @@ def delete_mission(
         schedule = db.query(Schedule).filter(Schedule.id == mission.schedule_id).first()
         if schedule and schedule.status == ScheduleStatus.PUBLISHED:
             raise HTTPException(400, "לא ניתן למחוק משימה משיבוץ שפורסם")
+    db.query(Assignment).filter(Assignment.mission_id == mission_id).delete(
+        synchronize_session=False
+    )
     db.delete(mission)
     db.commit()
     return {"ok": True}
