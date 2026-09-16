@@ -2865,11 +2865,9 @@ def workload_dashboard(
 
     def _display_name(pid: int) -> str:
         name = name_by_id.get(pid)
-        if name and pid in active_ids:
-            return name
         if name:
-            return f"{name} · מושעה"
-        return f"חייל #{pid} (לא זמין)"
+            return name
+        return f"חייל #{pid}"
 
     rows = [
         WorkloadPersonOut(
@@ -2877,6 +2875,7 @@ def workload_dashboard(
             person_name=_display_name(pid),
             total=data["total"],
             by_mission_type=data["by_type"],
+            is_active=pid in active_ids,
         )
         for pid, data in by_person.items()
     ]

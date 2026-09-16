@@ -652,6 +652,7 @@ export type WorkloadDashboard = {
     person_name: string;
     total: number;
     by_mission_type: Record<string, number>;
+    is_active?: boolean;
   }[];
   snapshot_at?: string | null;
 };

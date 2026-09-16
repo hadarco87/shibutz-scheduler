@@ -688,6 +688,7 @@ class WorkloadPersonOut(BaseModel):
     person_name: str
     total: float
     by_mission_type: dict
+    is_active: bool = True
 
 
 class WorkloadDashboardOut(BaseModel):

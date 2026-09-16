@@ -98,7 +98,12 @@ export default function WorkloadPage() {
           <tbody>
             {(data?.people || []).map((p) => (
               <tr key={p.person_id}>
-                <td>{p.person_name}</td>
+                <td>
+                  {p.person_name}
+                  {p.is_active === false ? (
+                    <span className="status-pill status-suspended">מושעה</span>
+                  ) : null}
+                </td>
                 {missionTypes.map((t) => (
                   <td key={t}>{p.by_mission_type[t] || 0}</td>
                 ))}
