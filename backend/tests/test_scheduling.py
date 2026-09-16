@@ -951,3 +951,73 @@ def test_generate_rebuilds_missions_from_updated_type_settings(db, company_data)
     assert (
         db.query(Assignment).filter(Assignment.schedule_id == schedule.id).count() == 1
     )
+
+
+def test_delete_assigned_mission_clears_assignments_before_requirements(db, company_data):
+    """Assigned missions must release assignments before cascading requirements."""
+    person = Person(
+        company_id=company_data["company"].id,
+        full_name="Assigned",
+        role_id=company_data["soldier"].id,
+    )
+    db.add(person)
+    db.flush()
+    mt = MissionType(
+        company_id=company_data["company"].id,
+        name="למחיקה",
+        difficulty_weight=1,
+        default_personnel_count=1,
+    )
+    db.add(mt)
+    db.flush()
+    schedule = Schedule(
+        company_id=company_data["company"].id,
+        window_start=datetime(2026, 9, 14, 0),
+        window_end=datetime(2026, 9, 15, 0),
+        status=ScheduleStatus.DRAFT,
+        created_by_id=company_data["user"].id,
+    )
+    db.add(schedule)
+    db.flush()
+    mission = Mission(
+        company_id=company_data["company"].id,
+        mission_type_id=mt.id,
+        name="למחיקה",
+        start_at=datetime(2026, 9, 14, 8),
+        end_at=datetime(2026, 9, 14, 12),
+        difficulty_weight=1,
+        personnel_count=1,
+        schedule_id=schedule.id,
+    )
+    db.add(mission)
+    db.flush()
+    req = MissionRequirement(
+        mission_id=mission.id,
+        role_id=company_data["soldier"].id,
+        count=1,
+    )
+    db.add(req)
+    db.flush()
+    db.add(
+        Assignment(
+            schedule_id=schedule.id,
+            mission_id=mission.id,
+            person_id=person.id,
+            requirement_id=req.id,
+            difficulty_at_assignment=1,
+        )
+    )
+    db.commit()
+    mission_id = mission.id
+    req_id = req.id
+
+    # Same order as DELETE /api/missions/{id}
+    db.query(Assignment).filter(Assignment.mission_id == mission_id).delete(
+        synchronize_session=False
+    )
+    db.delete(db.get(Mission, mission_id))
+    db.commit()
+
+    assert db.get(Mission, mission_id) is None
+    assert db.get(MissionRequirement, req_id) is None
+    assert db.query(Assignment).filter(Assignment.mission_id == mission_id).count() == 0

@@ -274,6 +274,12 @@ def rebuild_template_missions_for_schedule(
         )
         .all()
     )
+    stale_ids = [m.id for m in stale]
+    if stale_ids:
+        # Assignments reference mission_requirements; clear them before cascade delete.
+        db.query(Assignment).filter(Assignment.mission_id.in_(stale_ids)).delete(
+            synchronize_session=False
+        )
     for mission in stale:
         db.delete(mission)
     db.flush()
