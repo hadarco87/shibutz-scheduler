@@ -27,6 +27,16 @@ function kindLabel(kind: string, interval: number, weekdays?: string | null) {
   return kind;
 }
 
+function isPastEnd(endAt: string | null | undefined) {
+  if (!endAt) return false;
+  const t = new Date(endAt).getTime();
+  return Number.isFinite(t) && t < Date.now();
+}
+
+function ExpiredMark() {
+  return <span className="expired-watermark" aria-hidden>לא רלוונטי</span>;
+}
+
 export default function AvailabilityPage() {
   const { token } = useAuth();
   const confirm = useConfirm();
@@ -367,9 +377,14 @@ export default function AvailabilityPage() {
             </tr>
           </thead>
           <tbody>
-            {leave.map((l) => (
-              <tr key={l.id}>
-                <td>{nameOf(l.person_id)}</td>
+            {leave.map((l) => {
+              const expired = isPastEnd(l.end_at);
+              return (
+              <tr key={l.id} className={expired ? "table-row-expired" : undefined}>
+                <td>
+                  {nameOf(l.person_id)}
+                  {expired ? <ExpiredMark /> : null}
+                </td>
                 <td>{new Date(l.start_at).toLocaleString("he-IL")}</td>
                 <td>{new Date(l.end_at).toLocaleString("he-IL")}</td>
                 <td>
@@ -393,7 +408,8 @@ export default function AvailabilityPage() {
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </section>
@@ -411,9 +427,14 @@ export default function AvailabilityPage() {
             </tr>
           </thead>
           <tbody>
-            {restrictions.map((r) => (
-              <tr key={r.id}>
-                <td>{nameOf(r.person_id)}</td>
+            {restrictions.map((r) => {
+              const expired = isPastEnd(r.end_at);
+              return (
+              <tr key={r.id} className={expired ? "table-row-expired" : undefined}>
+                <td>
+                  {nameOf(r.person_id)}
+                  {expired ? <ExpiredMark /> : null}
+                </td>
                 <td>{r.restriction_type}</td>
                 <td>{new Date(r.start_at).toLocaleString("he-IL")}</td>
                 <td>{new Date(r.end_at).toLocaleString("he-IL")}</td>
@@ -438,7 +459,8 @@ export default function AvailabilityPage() {
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </section>
@@ -456,13 +478,21 @@ export default function AvailabilityPage() {
             </tr>
           </thead>
           <tbody>
-            {recurring.map((r) => (
-              <tr key={r.id}>
-                <td>{nameOf(r.person_id)}</td>
+            {recurring.map((r) => {
+              const expired = isPastEnd(r.active_until);
+              return (
+              <tr key={r.id} className={expired ? "table-row-expired" : undefined}>
+                <td>
+                  {nameOf(r.person_id)}
+                  {expired ? <ExpiredMark /> : null}
+                </td>
                 <td>{r.restriction_type}</td>
                 <td>{kindLabel(r.kind, r.interval_days, r.weekdays)}</td>
                 <td>
                   {r.time_start}–{r.time_end}
+                  {r.active_until
+                    ? ` · עד ${new Date(r.active_until).toLocaleDateString("he-IL")}`
+                    : ""}
                 </td>
                 <td>
                   <button
@@ -485,7 +515,8 @@ export default function AvailabilityPage() {
                   </button>
                 </td>
               </tr>
-            ))}
+              );
+            })}
           </tbody>
         </table>
       </section>

@@ -1213,7 +1213,6 @@ export default function HomePage() {
                   >
                     {inWindow ? "✓ " : ""}
                     {mt.name}
-                    {!mt.is_recurring_template ? " · חד־פעמית" : ""}
                   </button>
                 );
               })}

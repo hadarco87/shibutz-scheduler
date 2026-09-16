@@ -532,7 +532,7 @@ export default function SettingsPage() {
         time_windows.push({ ...w, sort_order: i });
       }
       if (!time_windows.length) {
-        setError("למשמרות מותאמות חובה להגדיר לפחות משמרת אחת");
+        setError("למשמרות ספציפיות חובה להגדיר לפחות משמרת אחת");
         return;
       }
     }
@@ -1756,9 +1756,9 @@ export default function SettingsPage() {
         <h2 style={{ marginTop: 0 }}>סוגי משימות (קטלוג)</h2>
         <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
           כאן מגדירים את סוגי המשימות הקבועים לפי הסדר: שם, קושי, מספר אנשים,
-          רוטיני כן/לא (ואז משך+שעת התחלה או טווחי שעות), דרישות, ושעות שינה
-          לפני אפטר. משימה מסומנת «בשיבוץ» מופיעה אוטומטית בטאב השיבוץ (בטיוטה
-          פעילה) אחרי שמוגדרים משמרות/טווחים.
+          רוטיני כן/לא (ואז תדירות + יממה מלאה או משמרות ספציפיות), דרישות,
+          וכללי שיבוץ נפרדים. משימה מסומנת «בשיבוץ» מופיעה אוטומטית בטאב
+          השיבוץ (בטיוטה פעילה) אחרי שמוגדרים משמרות/טווחים.
         </p>
         <form className="form-grid" onSubmit={createMissionType} style={{ maxWidth: 420 }}>
           <label>
@@ -1815,8 +1815,8 @@ export default function SettingsPage() {
                                 .join(" ") || "—"})`
                             : "כל יום",
                         mt.routine_hours_mode === "custom"
-                          ? `מותאם · ${(mt.time_windows || []).length} משמרות`
-                          : `מ־${String(mt.recurring_start_hour ?? "—").padStart(2, "0")}:00 · כל ${mt.default_duration_hours || "—"} ש׳`,
+                          ? `משמרות ספציפיות · ${(mt.time_windows || []).length}`
+                          : `יממה מלאה · מ־${String(mt.recurring_start_hour ?? "—").padStart(2, "0")}:00 · כל ${mt.default_duration_hours || "—"} ש׳`,
                       ].join(" · ")
                     : (mt.time_windows || []).length
                       ? `לא · ${(mt.time_windows || [])
@@ -1950,9 +1950,10 @@ export default function SettingsPage() {
                             }}
                           >
                             רוטיני = חוזרת לפי תדירות ימים (כל יום / כל X ימים /
-                            ימים בשבוע) ועם שעות אחידות או משמרות מותאמות. לא
-                            רוטיני = טווחי שעות קבועים בכל יום (למשל 05:30–07:00
-                            ו־18:00–19:30), כולל חציית חצות.
+                            ימים בשבוע). התדירות קובעת מתי היום פעיל; אחר כך
+                            בוחרים איך למלא את היום — יממה מלאה או משמרות
+                            ספציפיות. לא רוטיני = טווחי שעות קבועים בכל יום
+                            (למשל 05:30–07:00 ו־18:00–19:30), כולל חציית חצות.
                           </p>
                           <div className="people-chips">
                             <button
@@ -2077,22 +2078,48 @@ export default function SettingsPage() {
                                   color: "var(--ink-soft)",
                                 }}
                               >
-                                שעות ביום פעיל
+                                איך למלא את היום?
                               </div>
+                              <p
+                                style={{
+                                  margin: "0 0 0.5rem",
+                                  color: "var(--ink-soft)",
+                                  fontSize: "0.9rem",
+                                }}
+                              >
+                                התדירות למעלה קובעת מתי היום פעיל. כאן בוחרים
+                                מה קורה בתוך היום: יממה מלאה (ממלאים את כל
+                                ה־24 שעות במשמרות) או משמרות ספציפיות בלבד
+                                (למשל תורנות מטבח 08:00–20:00 בלי למלא את
+                                הלילה).
+                              </p>
                               <div className="people-chips">
                                 <button
                                   type="button"
                                   className={`chip ${mtHoursMode === "uniform" ? "manual" : ""}`}
                                   onClick={() => setMtHoursMode("uniform")}
                                 >
-                                  מחזור אחיד
+                                  יממה מלאה
                                 </button>
                                 <button
                                   type="button"
                                   className={`chip ${mtHoursMode === "custom" ? "manual" : ""}`}
-                                  onClick={() => setMtHoursMode("custom")}
+                                  onClick={() => {
+                                    setMtHoursMode("custom");
+                                    setMtSegments((prev) => {
+                                      if (prev.length > 0 && prev.some((s) => s.start)) {
+                                        return prev;
+                                      }
+                                      return [
+                                        {
+                                          start: `${String(mtStartHour).padStart(2, "0")}:00`,
+                                          durationHours: mtDuration > 0 ? mtDuration : 8,
+                                        },
+                                      ];
+                                    });
+                                  }}
                                 >
-                                  משמרות מותאמות (משכים שונים)
+                                  משמרות ספציפיות
                                 </button>
                               </div>
                             </div>
@@ -2112,6 +2139,16 @@ export default function SettingsPage() {
                               />
                             </label>
                             <div style={{ gridColumn: "1 / -1" }}>
+                              <p
+                                style={{
+                                  margin: "0 0 0.55rem",
+                                  color: "var(--ink-soft)",
+                                  fontSize: "0.9rem",
+                                }}
+                              >
+                                ממלאים את כל היממה במשמרות מחזוריות לפי משך
+                                ושעת התחלה (למשל כל 8 שעות מ־08:00).
+                              </p>
                               <label style={{ display: "block", maxWidth: 220 }}>
                                 שעת התחלת מחזור (חובה)
                                 <select
@@ -2235,8 +2272,10 @@ export default function SettingsPage() {
                                     fontSize: "0.9rem",
                                   }}
                                 >
-                                  הגדירו משמרות עם משכים שונים באותו יום פעיל
-                                  (למשל 08:00 ל־8 ש׳ ו־16:00 ל־10 ש׳).
+                                  הגדירו רק את המשמרות שרצות ביום הפעיל —
+                                  התחלה + משך לכל משמרת. אפשר כמה משמרות אם
+                                  צריך (למשל 08:00 ל־12 ש׳ בלבד, בלי למלא את
+                                  שאר היממה).
                                 </p>
                                 {mtSegments.map((seg, idx) => (
                                   <div

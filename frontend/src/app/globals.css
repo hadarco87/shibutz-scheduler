@@ -903,6 +903,27 @@ button.chip.active {
   font-size: 0.9rem;
 }
 
+.table-row-expired > td {
+  background: rgba(44, 63, 35, 0.04);
+  color: var(--ink-soft);
+  opacity: 0.72;
+}
+
+.expired-watermark {
+  display: inline-block;
+  margin-inline-start: 0.45rem;
+  padding: 0.1rem 0.4rem;
+  border-radius: 6px;
+  border: 1px dashed rgba(44, 63, 35, 0.35);
+  background: rgba(232, 226, 214, 0.9);
+  color: var(--ink-soft);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  vertical-align: middle;
+  white-space: nowrap;
+}
+
 .login-wrap {
   min-height: 100vh;
   display: grid;
