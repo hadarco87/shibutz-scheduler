@@ -323,3 +323,110 @@ def test_min_presence_not_at_home(db, company_data):
         ],
     )
     assert fine == []
+
+
+def test_sleep_before_after_blocks_early_after(db, company_data):
+    from app.models import SchedulingRuleKind
+    from app.services.policy_rules import evaluate_sleep_before_after
+
+    company = company_data["company"]
+    person = company_data["person"]
+    patrol = company_data["patrol"]
+
+    rule = SchedulingRule(
+        company_id=company.id,
+        rule_kind=SchedulingRuleKind.SLEEP_BEFORE_AFTER,
+        cooldown_hours=6.0,
+        severity=ConstraintSeverity.HARD,
+        applies_to_all_roles=True,
+        is_active=True,
+    )
+    db.add(rule)
+    db.flush()
+    db.add(SchedulingRuleSourceType(rule_id=rule.id, mission_type_id=patrol.id))
+
+    day = Schedule(
+        company_id=company.id,
+        window_start=datetime(2026, 9, 18, 0, 0),
+        window_end=datetime(2026, 9, 19, 0, 0),
+        status=ScheduleStatus.PUBLISHED,
+    )
+    db.add(day)
+    db.flush()
+    mission = Mission(
+        company_id=company.id,
+        schedule_id=day.id,
+        mission_type_id=patrol.id,
+        name="סיור לילה",
+        start_at=datetime(2026, 9, 17, 21, 0),
+        end_at=datetime(2026, 9, 18, 5, 0),
+        difficulty_weight=3,
+        personnel_count=1,
+    )
+    db.add(mission)
+    db.flush()
+    db.add(
+        Assignment(
+            schedule_id=day.id,
+            mission_id=mission.id,
+            person_id=person.id,
+            difficulty_at_assignment=3,
+            is_manual=False,
+        )
+    )
+    db.flush()
+
+    too_early = evaluate_sleep_before_after(
+        db,
+        company_id=company.id,
+        person=person,
+        after_start=datetime(2026, 9, 18, 8, 0),
+    )
+    assert any(v.code == "sleep_before_after" and v.severity == "hard" for v in too_early)
+
+    ok_at_11 = evaluate_sleep_before_after(
+        db,
+        company_id=company.id,
+        person=person,
+        after_start=datetime(2026, 9, 18, 11, 0),
+    )
+    assert ok_at_11 == []
+
+    # Day patrol ending evening — after next morning is fine (>6h)
+    day2 = Schedule(
+        company_id=company.id,
+        window_start=datetime(2026, 9, 19, 0, 0),
+        window_end=datetime(2026, 9, 20, 0, 0),
+        status=ScheduleStatus.PUBLISHED,
+    )
+    db.add(day2)
+    db.flush()
+    evening = Mission(
+        company_id=company.id,
+        schedule_id=day2.id,
+        mission_type_id=patrol.id,
+        name="סיור יום",
+        start_at=datetime(2026, 9, 18, 13, 0),
+        end_at=datetime(2026, 9, 18, 21, 0),
+        difficulty_weight=3,
+        personnel_count=1,
+    )
+    db.add(evening)
+    db.flush()
+    db.add(
+        Assignment(
+            schedule_id=day2.id,
+            mission_id=evening.id,
+            person_id=person.id,
+            difficulty_at_assignment=3,
+            is_manual=False,
+        )
+    )
+    db.flush()
+    next_morning = evaluate_sleep_before_after(
+        db,
+        company_id=company.id,
+        person=person,
+        after_start=datetime(2026, 9, 19, 6, 0),
+    )
+    assert next_morning == []

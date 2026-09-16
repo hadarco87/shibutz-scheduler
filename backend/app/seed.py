@@ -26,6 +26,9 @@ from app.models import (
     Schedule,
     ScheduleStatus,
     SchedulingConstraint,
+    SchedulingRule,
+    SchedulingRuleKind,
+    SchedulingRuleSourceType,
     User,
     UserRole,
     WorkloadEvent,
@@ -165,23 +168,23 @@ def seed_if_empty(db: Session) -> None:
     )
 
     # Mission types from the operational chart legend
-    # name, difficulty, personnel, duration_h, recurring?, sleep_before_after, start_hour
+    # name, difficulty, personnel, duration_h, recurring?, start_hour
     mission_defs = [
-        ("סיור", 4, 4, 8, True, 8, 13),
-        ("כרמל", 4, 4, 8, True, 6, 13),
-        ('ש"ג', 2, 1, 4, True, 4, 6),
-        ("קצין מוצב", 3, 1, 8, True, 4, 8),
-        ("יזומה", 5, 6, 5, False, 6, None),
-        ('חוץ רס"פ', 3, 2, 8, False, 4, None),
-        ('חפ"ק', 3, 3, 8, False, 4, None),
-        ("מתנדב מטבח", 1, 2, 4, True, 0, 8),
-        ("אימון", 2, 8, 4, False, 4, None),
-        ('חמ"ל', 2, 2, 8, True, 4, 8),
-        ("ליווי רכב", 3, 2, 4, False, 2, None),
+        ("סיור", 4, 4, 8, True, 13),
+        ("כרמל", 4, 4, 8, True, 13),
+        ('ש"ג', 2, 1, 4, True, 6),
+        ("קצין מוצב", 3, 1, 8, True, 8),
+        ("יזומה", 5, 6, 5, False, None),
+        ('חוץ רס"פ', 3, 2, 8, False, None),
+        ('חפ"ק', 3, 3, 8, False, None),
+        ("מתנדב מטבח", 1, 2, 4, True, 8),
+        ("אימון", 2, 8, 4, False, None),
+        ('חמ"ל', 2, 2, 8, True, 8),
+        ("ליווי רכב", 3, 2, 4, False, None),
     ]
 
     mission_types = {}
-    for name, diff, count, dur, recurring, sleep_h, start_h in mission_defs:
+    for name, diff, count, dur, recurring, start_h in mission_defs:
         mt = MissionType(
             company_id=company.id,
             name=name,
@@ -192,12 +195,31 @@ def seed_if_empty(db: Session) -> None:
             is_recurring_template=recurring,
             recurring_start_hour=start_h,
             recurring_end_hour=None,
-            required_sleep_hours_before_after=sleep_h,
+            required_sleep_hours_before_after=0,
             routine_remainder_policy="include_short",
         )
         db.add(mt)
         db.flush()
         mission_types[name] = mt
+
+    # Sleep before after — configured as a scheduling rule (not on mission types)
+    sleep_rule = SchedulingRule(
+        company_id=company.id,
+        name="שינה לפני אפטר אחרי סיור/כרמל",
+        rule_kind=SchedulingRuleKind.SLEEP_BEFORE_AFTER,
+        cooldown_hours=6.0,
+        severity=ConstraintSeverity.HARD,
+        applies_to_all_roles=True,
+        is_active=True,
+    )
+    db.add(sleep_rule)
+    db.flush()
+    for key in ("סיור", "כרמל"):
+        db.add(
+            SchedulingRuleSourceType(
+                rule_id=sleep_rule.id, mission_type_id=mission_types[key].id
+            )
+        )
 
     # Default clock windows for non-routine types (overnight-capable)
     seed_windows = {

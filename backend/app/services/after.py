@@ -17,8 +17,6 @@ from app.models import (
     KanimRuleKind,
     LeavePeriod,
     LeaveType,
-    Mission,
-    MissionType,
     Person,
     Schedule,
     ScheduleStatus,
@@ -81,16 +79,6 @@ def after_count_map(
     return dict(counts)
 
 
-def _mission_is_night(start: datetime, end: datetime) -> bool:
-    """True if the mission overlaps local night 22:00–06:00."""
-    t = start
-    while t < end:
-        if t.hour >= 22 or t.hour < 6:
-            return True
-        t += timedelta(hours=1)
-    return False
-
-
 @dataclass
 class AfterCandidate:
     person_id: int
@@ -117,6 +105,7 @@ def build_after_preview(db: Session, schedule: Schedule) -> AfterPreview:
     min_kanim = max_kanim_in_window(rules, schedule.window_start, schedule.window_end)
     people = (
         db.query(Person)
+        .options(joinedload(Person.role))
         .filter(Person.company_id == schedule.company_id, Person.is_active.is_(True))
         .all()
     )
@@ -130,65 +119,44 @@ def build_after_preview(db: Session, schedule: Schedule) -> AfterPreview:
 
     after_counts = after_count_map(db, schedule.company_id, schedule.window_start)
 
-    # Recent missions for sleep warnings (any company mission ending before window)
-    lookback = schedule.window_start - timedelta(days=2)
-    recent_missions = (
-        db.query(Mission)
-        .options(joinedload(Mission.mission_type))
-        .filter(
-            Mission.company_id == schedule.company_id,
-            Mission.end_at >= lookback,
-            Mission.end_at <= schedule.window_start,
-        )
-        .all()
+    from app.services.policy_rules import (
+        evaluate_sleep_before_after,
+        load_active_scheduling_rules,
     )
-    # person -> last mission end via published/historical assignments is heavy;
-    # also check assignments on this schedule that end before someone would leave.
-    # For free candidates (no assignment in window), use prior missions linked via
-    # any assignment in overlapping schedules... simpler: scan Assignment join Mission
-    prior = (
-        db.query(Assignment, Mission, MissionType)
-        .join(Mission, Mission.id == Assignment.mission_id)
-        .join(MissionType, MissionType.id == Mission.mission_type_id)
-        .filter(
-            Mission.company_id == schedule.company_id,
-            Mission.end_at >= lookback,
-            Mission.end_at <= schedule.window_start,
-        )
-        .all()
-    )
-    last_by_person: Dict[int, Tuple[datetime, MissionType, bool]] = {}
-    for a, mission, mt in prior:
-        night = _mission_is_night(mission.start_at, mission.end_at)
-        prev = last_by_person.get(a.person_id)
-        if not prev or mission.end_at > prev[0]:
-            last_by_person[a.person_id] = (mission.end_at, mt, night)
+    from app.models import SchedulingRuleKind
 
-    # Also consider orphan recent_missions without going through assignment — skip;
-    # sleep is about who served.
-    _ = recent_missions
+    sleep_rules = [
+        r
+        for r in load_active_scheduling_rules(db, schedule.company_id)
+        if (
+            r.rule_kind == SchedulingRuleKind.SLEEP_BEFORE_AFTER
+            or str(getattr(r.rule_kind, "value", r.rule_kind)) == "sleep_before_after"
+        )
+    ]
 
     free = [p for p in people if p.id not in assigned_ids]
     free.sort(key=lambda p: (after_counts.get(p.id, 0), p.full_name))
+
+    # Default proposed after start = beginning of the schedule day.
+    proposed_start = schedule.window_start
 
     candidates: List[AfterCandidate] = []
     for rank, p in enumerate(free, start=1):
         sleep_warning = False
         msg = None
-        last = last_by_person.get(p.id)
-        if last:
-            end_at, mt, night = last
-            need = float(mt.required_sleep_hours_before_after or 0)
-            if need > 0:
-                ready = end_at + timedelta(hours=need)
-                if schedule.window_start < ready:
-                    sleep_warning = True
-                    msg = (
-                        f"ייתכן שלא ישן מספיק אחרי {mt.name} "
-                        f"(נדרשות {need:g} ש׳ שינה עד {ready.strftime('%d.%m %H:%M')})"
-                    )
-                    if night:
-                        msg = "משימת לילה · " + msg
+        if sleep_rules:
+            hits = evaluate_sleep_before_after(
+                db,
+                company_id=schedule.company_id,
+                person=p,
+                after_start=proposed_start,
+                rules=sleep_rules,
+                prior_end_limit=schedule.window_end,
+            )
+            if hits:
+                sleep_warning = True
+                hard = [v for v in hits if v.severity == "hard"]
+                msg = (hard or hits)[0].message
         candidates.append(
             AfterCandidate(
                 person_id=p.id,
@@ -234,6 +202,44 @@ def save_after_drafts(
         if end <= start:
             raise ValueError("סיום האפטר חייב להיות אחרי ההתחלה")
 
+    from app.services.policy_rules import (
+        evaluate_min_presence_rules,
+        evaluate_sleep_before_after,
+        load_active_scheduling_rules,
+    )
+    from app.models import SchedulingRuleKind
+
+    sleep_rules = [
+        r
+        for r in load_active_scheduling_rules(db, schedule.company_id)
+        if (
+            r.rule_kind == SchedulingRuleKind.SLEEP_BEFORE_AFTER
+            or str(getattr(r.rule_kind, "value", r.rule_kind)) == "sleep_before_after"
+        )
+    ]
+    people_by_id = {
+        p.id: p
+        for p in db.query(Person)
+        .filter(Person.company_id == schedule.company_id)
+        .all()
+    }
+
+    for person_id, start, end in items:
+        person = people_by_id.get(person_id)
+        if not person:
+            person = db.query(Person).filter(Person.id == person_id).first()
+        if person and sleep_rules:
+            sleep_hits = evaluate_sleep_before_after(
+                db,
+                company_id=schedule.company_id,
+                person=person,
+                after_start=start,
+                rules=sleep_rules,
+            )
+            hard_sleep = [v for v in sleep_hits if v.severity == "hard"]
+            if hard_sleep:
+                raise ValueError(hard_sleep[0].message)
+
     db.query(AfterDraft).filter(AfterDraft.schedule_id == schedule.id).delete()
     created: List[AfterDraft] = []
     for person_id, start, end in items:
@@ -246,8 +252,6 @@ def save_after_drafts(
         db.add(row)
         created.append(row)
     db.flush()
-
-    from app.services.policy_rules import evaluate_min_presence_rules
 
     presence = evaluate_min_presence_rules(
         db,

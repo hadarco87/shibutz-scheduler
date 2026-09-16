@@ -2013,6 +2013,26 @@ def _set_rule_links(
                 rule.roles.append(SchedulingRuleRole(role_id=rid))
         return
 
+    if kind == SchedulingRuleKind.SLEEP_BEFORE_AFTER:
+        if not source_ids:
+            raise HTTPException(400, "בחרו לפחות סוג משימה אחד שדורש שינה לפני אפטר")
+        for mid in sorted(set(source_ids)):
+            rule.source_types.append(SchedulingRuleSourceType(mission_type_id=mid))
+        if not applies_to_all:
+            if not role_ids:
+                raise HTTPException(400, "בחרו תפקידים או סמנו «כל כוח האדם»")
+            roles = {
+                r.id: r
+                for r in db.query(Role)
+                .filter(Role.company_id == company_id, Role.id.in_(role_ids))
+                .all()
+            }
+            if any(i not in roles for i in role_ids):
+                raise HTTPException(400, "תפקיד לא נמצא בכלל")
+            for rid in sorted(set(role_ids)):
+                rule.roles.append(SchedulingRuleRole(role_id=rid))
+        return
+
     # min_presence
     if not role_ids and not qualification_ids:
         raise HTTPException(400, "בחרו לפחות תפקיד אחד או פק״ל אחד לנוכחות")

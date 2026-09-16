@@ -79,6 +79,7 @@ class ConstraintType(str, enum.Enum):
 class SchedulingRuleKind(str, enum.Enum):
     TRANSITION = "transition"
     MIN_PRESENCE = "min_presence"
+    SLEEP_BEFORE_AFTER = "sleep_before_after"
 
 
 class PresenceScope(str, enum.Enum):

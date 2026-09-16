@@ -93,7 +93,6 @@ export default function SettingsPage() {
   const [mtSegments, setMtSegments] = useState<SegmentDraft[]>([
     { start: "08:00", durationHours: 8 },
   ]);
-  const [mtSleep, setMtSleep] = useState(0);
   const [mtWindows, setMtWindows] = useState<WindowDraft[]>([
     { start: "05:30", end: "07:00" },
   ]);
@@ -108,9 +107,9 @@ export default function SettingsPage() {
   const [kanimDate, setKanimDate] = useState("");
   const [kanimNotes, setKanimNotes] = useState("");
   const [schedulingRules, setSchedulingRules] = useState<SchedulingRule[]>([]);
-  const [ruleKind, setRuleKind] = useState<"transition" | "min_presence">(
-    "transition"
-  );
+  const [ruleKind, setRuleKind] = useState<
+    "transition" | "min_presence" | "sleep_before_after"
+  >("transition");
   const [ruleSources, setRuleSources] = useState<number[]>([]);
   const [ruleBlocked, setRuleBlocked] = useState<number[]>([]);
   const [ruleMinHours, setRuleMinHours] = useState(8);
@@ -334,7 +333,6 @@ export default function SettingsPage() {
     } else {
       setMtSegments([{ start: "08:00", durationHours: mt.default_duration_hours || 8 }]);
     }
-    setMtSleep(mt.required_sleep_hours_before_after || 0);
     setMtWindows(
       !mt.is_recurring_template && (mt.time_windows || []).length
         ? (mt.time_windows || []).map((w) => ({
@@ -625,7 +623,6 @@ export default function SettingsPage() {
             ? mtAnchorDate
             : null,
         routine_hours_mode: mtRecurring ? mtHoursMode : "uniform",
-        required_sleep_hours_before_after: mtSleep,
         default_requirements: useBands ? [] : default_requirements,
         time_windows:
           !mtRecurring || mtHoursMode === "custom" ? time_windows : [],
@@ -682,6 +679,22 @@ export default function SettingsPage() {
   }
 
   function ruleSentencePreview() {
+    if (ruleKind === "sleep_before_after") {
+      const sources =
+        ruleSources
+          .map((id) => missionTypes.find((m) => m.id === id)?.name)
+          .filter(Boolean)
+          .join(" / ") || "…";
+      const who = ruleAllRoles
+        ? "כל כוח האדם"
+        : ruleRoleIds
+            .map((id) => roles.find((r) => r.id === id)?.name)
+            .filter(Boolean)
+            .join(", ") || "תפקידים נבחרים";
+      return `אחרי ${sources} — ${ruleCooldownHours} ש׳ במוצב לפני יציאה לאפטר · ${
+        ruleSeverity === "hard" ? "קשיח" : "רך"
+      } · ${who}`;
+    }
     if (ruleKind === "min_presence") {
       const who =
         [
@@ -758,6 +771,17 @@ export default function SettingsPage() {
           severity: ruleSeverity,
           is_active: true,
         });
+      } else if (ruleKind === "sleep_before_after") {
+        await api.createSchedulingRule(token, {
+          rule_kind: "sleep_before_after",
+          source_mission_type_ids: ruleSources,
+          blocked_mission_type_ids: [],
+          cooldown_hours: ruleCooldownHours,
+          severity: ruleSeverity,
+          applies_to_all_roles: ruleAllRoles,
+          role_ids: ruleAllRoles ? [] : ruleRoleIds,
+          is_active: true,
+        });
       } else {
         await api.createSchedulingRule(token, {
           rule_kind: "transition",
@@ -780,6 +804,15 @@ export default function SettingsPage() {
   }
 
   function formatRuleRow(r: SchedulingRule) {
+    if (r.rule_kind === "sleep_before_after") {
+      return (
+        <>
+          שינה לפני אפטר: אחרי{" "}
+          <strong>{r.source_mission_type_names.join(" / ")}</strong> →{" "}
+          {r.cooldown_hours}ש׳ במוצב
+        </>
+      );
+    }
     if (r.rule_kind === "min_presence") {
       const who = [
         ...r.role_names,
@@ -1308,9 +1341,10 @@ export default function SettingsPage() {
       >
         <h2 style={{ marginTop: 0 }}>כללי שיבוץ</h2>
         <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
-          שני סוגי כללים: <strong>מעבר בין משימות</strong> (אחרי משמרת ארוכה לא
-          מיד לסיור), ו־<strong>נוכחות מינימלית</strong> (למשל תמיד קצין אחד
-          במוצב / לא כל החובשים בבית).
+          שלושה סוגי כללים: <strong>מעבר בין משימות</strong>,{" "}
+          <strong>נוכחות מינימלית</strong>, ו־
+          <strong>שעות שינה לפני אפטר</strong> (אחרי סיור לילה נשארים במוצב לפני
+          יציאה הביתה).
         </p>
 
         <form
@@ -1323,11 +1357,19 @@ export default function SettingsPage() {
             <select
               value={ruleKind}
               onChange={(e) =>
-                setRuleKind(e.target.value as "transition" | "min_presence")
+                setRuleKind(
+                  e.target.value as
+                    | "transition"
+                    | "min_presence"
+                    | "sleep_before_after"
+                )
               }
             >
               <option value="transition">מעבר בין משימות</option>
               <option value="min_presence">נוכחות מינימלית בכל רגע</option>
+              <option value="sleep_before_after">
+                שעות שינה לפני יציאה לאפטר
+              </option>
             </select>
           </label>
 
@@ -1421,6 +1463,81 @@ export default function SettingsPage() {
                       return (
                         <button
                           key={`role-${r.id}`}
+                          type="button"
+                          className={`chip${on ? " active" : ""}`}
+                          onClick={() =>
+                            setRuleRoleIds(toggleId(ruleRoleIds, r.id))
+                          }
+                        >
+                          {on ? "✓ " : ""}
+                          {r.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </fieldset>
+              ) : null}
+            </>
+          ) : ruleKind === "sleep_before_after" ? (
+            <>
+              <fieldset className="rule-chip-fieldset">
+                <legend>אחרי משימות מסוג (שוברות שינה)</legend>
+                <div className="chip-row">
+                  {missionTypes.map((mt) => {
+                    const on = ruleSources.includes(mt.id);
+                    return (
+                      <button
+                        key={`sleep-src-${mt.id}`}
+                        type="button"
+                        className={`chip${on ? " active" : ""}`}
+                        onClick={() =>
+                          setRuleSources(toggleId(ruleSources, mt.id))
+                        }
+                      >
+                        {on ? "✓ " : ""}
+                        {mt.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              <label>
+                שעות במוצב לפני יציאה לאפטר
+                <input
+                  type="number"
+                  min={0.5}
+                  step={0.5}
+                  max={24}
+                  value={ruleCooldownHours}
+                  onChange={(e) => setRuleCooldownHours(Number(e.target.value))}
+                  required
+                />
+              </label>
+
+              <p style={{ margin: 0, color: "var(--ink-soft)", fontSize: "0.9rem" }}>
+                לדוגמה: סיור לילה עד 05:00 ו־6 שעות שינה → אפטר רק מ־11:00.
+                תורן מטבח לא נכלל כאן — רק הסוגים שסימנתם.
+              </p>
+
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={ruleAllRoles}
+                  onChange={(e) => setRuleAllRoles(e.target.checked)}
+                />
+                חל על כל כוח האדם
+              </label>
+
+              {!ruleAllRoles ? (
+                <fieldset className="rule-chip-fieldset">
+                  <legend>חל רק על התפקידים</legend>
+                  <div className="chip-row">
+                    {activeRoles.map((r) => {
+                      const on = ruleRoleIds.includes(r.id);
+                      return (
+                        <button
+                          key={`sleep-role-${r.id}`}
                           type="button"
                           className={`chip${on ? " active" : ""}`}
                           onClick={() =>
@@ -1564,9 +1681,11 @@ export default function SettingsPage() {
             disabled={
               ruleKind === "transition"
                 ? !ruleSources.length || !ruleBlocked.length
-                : (!ruleRoleIds.length && !ruleQualIds.length) ||
-                  (rulePresenceScope === "on_mission_types" &&
-                    !ruleSources.length)
+                : ruleKind === "sleep_before_after"
+                  ? !ruleSources.length
+                  : (!ruleRoleIds.length && !ruleQualIds.length) ||
+                    (rulePresenceScope === "on_mission_types" &&
+                      !ruleSources.length)
             }
           >
             שמור כלל שיבוץ
@@ -1597,9 +1716,13 @@ export default function SettingsPage() {
                   <td>
                     {r.rule_kind === "min_presence"
                       ? "כיסוי רציף"
-                      : r.applies_to_all_roles
-                        ? "כולם"
-                        : r.role_names.join(", ") || "—"}
+                      : r.rule_kind === "sleep_before_after"
+                        ? r.applies_to_all_roles
+                          ? "כולם"
+                          : r.role_names.join(", ") || "—"
+                        : r.applies_to_all_roles
+                          ? "כולם"
+                          : r.role_names.join(", ") || "—"}
                   </td>
                   <td>
                     <button
@@ -2717,17 +2840,6 @@ export default function SettingsPage() {
                           </div>
                         </div>
                         ) : null}
-
-                        <label>
-                          שעות שינה נדרשות לפני אפטר
-                          <input
-                            type="number"
-                            min={0}
-                            step={0.5}
-                            value={mtSleep}
-                            onChange={(e) => setMtSleep(Number(e.target.value))}
-                          />
-                        </label>
 
                         <div style={{ display: "flex", gap: "0.5rem" }}>
                           <button className="btn btn-primary" type="submit">

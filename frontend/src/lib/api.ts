@@ -459,7 +459,7 @@ export type SchedulingRule = {
   id: number;
   company_id: number;
   name?: string | null;
-  rule_kind: "transition" | "min_presence";
+  rule_kind: "transition" | "min_presence" | "sleep_before_after";
   source_mission_type_ids: number[];
   blocked_mission_type_ids: number[];
   source_mission_type_names: string[];

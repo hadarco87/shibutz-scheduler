@@ -480,6 +480,122 @@ def evaluate_min_presence_rules(
                         "presence_scope": scope.value,
                     },
                 )
-            )
+                )
 
+    return violations
+
+
+def evaluate_sleep_before_after(
+    db: Session,
+    *,
+    company_id: int,
+    person: Person,
+    after_start: datetime,
+    rules: Optional[List[SchedulingRule]] = None,
+    lookback_days: float = 3.0,
+    prior_end_limit: Optional[datetime] = None,
+) -> List[Violation]:
+    """Block / warn after that starts too soon after sleep-disrupting missions.
+
+    prior_end_limit: latest mission end time to consider (defaults to after_start).
+    Preview may pass window_end so same-day early-morning finishes are visible.
+    """
+    active_rules = [
+        r
+        for r in (
+            rules
+            if rules is not None
+            else load_active_scheduling_rules(db, company_id)
+        )
+        if _rule_kind(r) == SchedulingRuleKind.SLEEP_BEFORE_AFTER
+    ]
+    if not active_rules:
+        return []
+
+    end_limit = prior_end_limit or after_start
+    lookback = after_start - timedelta(days=lookback_days)
+    prior_rows = (
+        db.query(Assignment, Mission)
+        .join(Mission, Mission.id == Assignment.mission_id)
+        .filter(
+            Mission.company_id == company_id,
+            Assignment.person_id == person.id,
+            Mission.end_at >= lookback,
+            Mission.end_at <= end_limit,
+            Mission.mission_type_id.isnot(None),
+        )
+        .all()
+    )
+    latest_by_type: Dict[int, Tuple[datetime, Mission]] = {}
+    for _a, mission in prior_rows:
+        mt_id = mission.mission_type_id
+        if mt_id is None:
+            continue
+        prev = latest_by_type.get(mt_id)
+        if not prev or mission.end_at > prev[0]:
+            latest_by_type[mt_id] = (mission.end_at, mission)
+
+    violations: List[Violation] = []
+    for rule in active_rules:
+        if not _rule_applies_to_person(rule, person):
+            continue
+        source_ids = {row.mission_type_id for row in rule.source_types}
+        if not source_ids:
+            continue
+        sleep_h = float(rule.cooldown_hours or 0)
+        if sleep_h <= 0:
+            continue
+
+        triggering: Optional[Tuple[datetime, Mission, str]] = None
+        for mt_id in source_ids:
+            hit = latest_by_type.get(mt_id)
+            if not hit:
+                continue
+            end_at, mission = hit
+            name = next(
+                (
+                    row.mission_type.name
+                    for row in rule.source_types
+                    if row.mission_type_id == mt_id and row.mission_type
+                ),
+                mission.name,
+            )
+            if triggering is None or end_at > triggering[0]:
+                triggering = (end_at, mission, name)
+
+        if not triggering:
+            continue
+        end_at, mission, name = triggering
+        ready = end_at + timedelta(hours=sleep_h)
+        if after_start >= ready:
+            continue
+        severity = "hard" if rule.severity == ConstraintSeverity.HARD else "soft"
+        night = (
+            end_at.hour >= 22
+            or end_at.hour < 6
+            or mission.start_at.hour >= 22
+            or mission.start_at.hour < 6
+        )
+        prefix = "משימת לילה · " if night else ""
+        violations.append(
+            Violation(
+                severity,
+                "sleep_before_after",
+                (
+                    f"{prefix}{person.full_name}: אחרי «{name}» נדרשות "
+                    f"{sleep_h:g} ש׳ במוצב לפני יציאה לאפטר "
+                    f"(מוכן מ־{ready.strftime('%d.%m %H:%M')})"
+                ),
+                mission.id,
+                person.id,
+                {
+                    "rule_id": rule.id,
+                    "mission_id": mission.id,
+                    "mission_type_id": mission.mission_type_id,
+                    "ready_at": ready.isoformat(),
+                    "after_start": after_start.isoformat(),
+                    "sleep_hours": sleep_h,
+                },
+            )
+        )
     return violations
