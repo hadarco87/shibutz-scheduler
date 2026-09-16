@@ -8,9 +8,6 @@ import { SchedulingHowItWorksButton } from "@/components/SchedulingHowItWorks";
 import { useAuth } from "@/lib/auth";
 import {
   api,
-  AfterCandidate,
-  AfterDraftItem,
-  AfterPreview,
   MissionType,
   Person,
   Schedule,
@@ -133,27 +130,7 @@ export default function HomePage() {
   );
   const [replaceMode, setReplaceMode] = useState<"matching" | "all">("matching");
   const [replaceLoading, setReplaceLoading] = useState(false);
-  const [afterPreview, setAfterPreview] = useState<AfterPreview | null>(null);
-  const [afterSelected, setAfterSelected] = useState<
-    Record<number, { start: string; end: string }>
-  >({});
   const [rosterOpen, setRosterOpen] = useState(false);
-
-  function applyAfterPreview(preview: AfterPreview | null) {
-    setAfterPreview(preview);
-    if (!preview) {
-      setAfterSelected({});
-      return;
-    }
-    const sel: Record<number, { start: string; end: string }> = {};
-    for (const d of preview.drafts) {
-      sel[d.person_id] = {
-        start: formatLocal(new Date(d.start_at)),
-        end: formatLocal(new Date(d.end_at)),
-      };
-    }
-    setAfterSelected(sel);
-  }
 
   async function loadDaySchedule(
     token: string,
@@ -169,15 +146,6 @@ export default function HomePage() {
       }
     }
     setSchedule(day);
-    if (day.status === "draft" && day.assignments.length) {
-      try {
-        applyAfterPreview(await api.afterPreview(token, day.id));
-      } catch {
-        applyAfterPreview(null);
-      }
-    } else {
-      applyAfterPreview(null);
-    }
     return day;
   }
 
@@ -218,15 +186,6 @@ export default function HomePage() {
       }
     }
     setSchedule(draft);
-    if (draft && draft.status === "draft" && draft.assignments.length) {
-      try {
-        applyAfterPreview(await api.afterPreview(token, draft.id));
-      } catch {
-        applyAfterPreview(null);
-      }
-    } else {
-      applyAfterPreview(null);
-    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [token]);
 
@@ -514,11 +473,6 @@ export default function HomePage() {
         const res = await api.generate(token, dayId);
         setResult(res);
         setSchedule(res.schedule);
-        try {
-          applyAfterPreview(await api.afterPreview(token, dayId));
-        } catch {
-          applyAfterPreview(null);
-        }
         const refreshed = await api.getSchedulePlan(token, matchedPlan.id);
         setPlan(refreshed);
         return;
@@ -562,7 +516,6 @@ export default function HomePage() {
       } else {
         const published = await api.publish(token, schedule.id);
         setSchedule(published);
-        applyAfterPreview(null);
       }
       setResult(null);
       setPublishShareOpen(true);
@@ -662,53 +615,6 @@ export default function HomePage() {
     void buildAndDownloadPdf();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPdfAfterPublish, schedule]);
-
-  async function toggleAfterCandidate(c: AfterCandidate) {
-    if (!schedule) return;
-    setError("");
-    if (!afterSelected[c.person_id]) {
-      if (
-        afterPreview &&
-        Object.keys(afterSelected).length >= afterPreview.after_quota
-      ) {
-        setError(`מכסת האפטר היא ${afterPreview.after_quota} בלבד`);
-        return;
-      }
-    }
-    setAfterSelected((prev) => {
-      const next = { ...prev };
-      if (next[c.person_id]) {
-        delete next[c.person_id];
-      } else {
-        const start = formatLocal(new Date(schedule.window_start));
-        const endDate = new Date(schedule.window_start);
-        endDate.setHours(endDate.getHours() + 8);
-        next[c.person_id] = { start, end: formatLocal(endDate) };
-      }
-      return next;
-    });
-  }
-
-  async function saveAfterSelections() {
-    if (!token || !schedule) return;
-    startBusy("שומר אפטר…");
-    setError("");
-    try {
-      const items: AfterDraftItem[] = Object.entries(afterSelected).map(
-        ([pid, times]) => ({
-          person_id: Number(pid),
-          start_at: new Date(times.start).toISOString(),
-          end_at: new Date(times.end).toISOString(),
-        })
-      );
-      const preview = await api.saveAfterDrafts(token, schedule.id, items);
-      setAfterPreview(preview);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "שמירת אפטר נכשלה");
-    } finally {
-      stopBusy();
-    }
-  }
 
   async function loadReplaceOptions(
     assignmentId: number,
@@ -1511,113 +1417,6 @@ export default function HomePage() {
           </>
         )}
       </section>
-
-      {schedule &&
-      schedule.status === "draft" &&
-      afterPreview &&
-      (result || schedule.assignments.length > 0) ? (
-        <section className="panel">
-          <h2 style={{ marginTop: 0 }}>אפטר — פרגון יציאות</h2>
-          <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
-            מכסה: {afterPreview.after_quota} (כוח אדם {afterPreview.total_active} −
-            קנים {afterPreview.min_kanim}). הרשימה מדורגת לפי מי שפחות יצא לאפטר ב־30
-            הימים האחרונים — ההמלצה אינה מחייבת. נשמר סופית רק ב«מאושר לפרסום».
-          </p>
-          <div className="stats" style={{ marginBottom: "1rem" }}>
-            <div className="stat">
-              <span className="label">ניתן לפרגן</span>
-              <span className="value">{afterPreview.after_quota}</span>
-            </div>
-            <div className="stat">
-              <span className="label">נבחרו</span>
-              <span className="value">{Object.keys(afterSelected).length}</span>
-            </div>
-            <div className="stat">
-              <span className="label">מועמדים פנויים</span>
-              <span className="value">{afterPreview.candidates.length}</span>
-            </div>
-          </div>
-          <div className="mission-list">
-            {afterPreview.candidates.map((c) => {
-              const selected = !!afterSelected[c.person_id];
-              const times = afterSelected[c.person_id];
-              return (
-                <article key={c.person_id} className="mission-card">
-                  <header>
-                    <div>
-                      <h3>
-                        #{c.recommended_rank} · {c.person_name}
-                      </h3>
-                      <div className="time">
-                        אפטרים ב־30 ימים: {c.after_count_30d}
-                        {c.sleep_warning ? (
-                          <span style={{ color: "var(--danger)", marginInlineStart: 8 }}>
-                            ⚠ {c.sleep_warning_message || "ייתכן שלא ישן מספיק"}
-                          </span>
-                        ) : null}
-                      </div>
-                    </div>
-                    <button
-                      className={`btn ${selected ? "btn-accent" : "btn-ghost"} btn-small`}
-                      type="button"
-                      disabled={busy}
-                      onClick={() => toggleAfterCandidate(c)}
-                    >
-                      {selected ? "נבחר לאפטר" : "פרגן אפטר"}
-                    </button>
-                  </header>
-                  {selected && times ? (
-                    <div
-                      style={{
-                        display: "flex",
-                        gap: "0.5rem",
-                        flexWrap: "wrap",
-                        marginTop: "0.6rem",
-                      }}
-                    >
-                      <label>
-                        התחלה
-                        <input
-                          type="datetime-local"
-                          value={times.start}
-                          onChange={(e) =>
-                            setAfterSelected((prev) => ({
-                              ...prev,
-                              [c.person_id]: { ...times, start: e.target.value },
-                            }))
-                          }
-                        />
-                      </label>
-                      <label>
-                        סיום
-                        <input
-                          type="datetime-local"
-                          value={times.end}
-                          onChange={(e) =>
-                            setAfterSelected((prev) => ({
-                              ...prev,
-                              [c.person_id]: { ...times, end: e.target.value },
-                            }))
-                          }
-                        />
-                      </label>
-                    </div>
-                  ) : null}
-                </article>
-              );
-            })}
-          </div>
-          <button
-            className="btn btn-primary"
-            type="button"
-            style={{ marginTop: "1rem" }}
-            disabled={busy}
-            onClick={saveAfterSelections}
-          >
-            שמור בחירת אפטר לטיוטה
-          </button>
-        </section>
-      ) : null}
 
       {schedule ? (
         <div className="schedule-pdf-mount" aria-hidden>

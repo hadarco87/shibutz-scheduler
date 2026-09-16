@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
+import { AfterGrantsAccordion } from "@/components/AfterGrantsAccordion";
 import { AppShell } from "@/components/AppShell";
 import { useConfirm } from "@/components/ConfirmDialog";
 import { useAuth } from "@/lib/auth";
@@ -169,12 +170,14 @@ export default function AvailabilityPage() {
       <section className="panel">
         <h1 style={{ marginTop: 0 }}>חופשות ומגבלות</h1>
         <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
-          מגבלות חד־פעמיות לפי טווח תאריכים, או מגבלות רוטיניות (כל יום / כל N ימים /
-          ימים בשבוע) בין שעות.
+          מגבלות חד־פעמיות לפי טווח תאריכים, מגבלות רוטיניות, ופרגון אפטר לטיוטת
+          השיבוץ.
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {ok ? <div className="alert alert-ok">{ok}</div> : null}
       </section>
+
+      <AfterGrantsAccordion />
 
       <section className="panel">
         <h2 style={{ marginTop: 0 }}>חופשה / מגבלה חד־פעמית</h2>
