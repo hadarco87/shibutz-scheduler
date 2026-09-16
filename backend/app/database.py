@@ -151,6 +151,23 @@ def ensure_schema() -> None:
                     )
                 )
 
+    for table in (
+        "mission_type_requirements",
+        "mission_type_band_requirements",
+        "mission_requirements",
+    ):
+        if table not in insp.get_table_names():
+            continue
+        cols = {c["name"] for c in insp.get_columns(table)}
+        if "exact_role" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table} "
+                        "ADD COLUMN exact_role BOOLEAN DEFAULT FALSE"
+                    )
+                )
+
 
 def get_db():
     db = SessionLocal()

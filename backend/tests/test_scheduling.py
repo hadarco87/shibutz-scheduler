@@ -184,6 +184,48 @@ def test_commander_can_fill_soldier_slot(db, company_data):
     assert result.ok
 
 
+def test_exact_role_blocks_commander_on_soldier_slot(db, company_data):
+    commander_person = Person(
+        company_id=company_data["company"].id,
+        full_name="CmdExact",
+        role_id=company_data["commander"].id,
+    )
+    db.add(commander_person)
+    db.flush()
+    mt = MissionType(
+        company_id=company_data["company"].id,
+        name="שג מדויק",
+        difficulty_weight=2,
+        default_personnel_count=1,
+    )
+    db.add(mt)
+    db.flush()
+    mission = Mission(
+        company_id=company_data["company"].id,
+        mission_type_id=mt.id,
+        name="שג מדויק",
+        start_at=datetime(2026, 9, 14, 8),
+        end_at=datetime(2026, 9, 14, 12),
+        difficulty_weight=2,
+        personnel_count=1,
+    )
+    db.add(mission)
+    db.commit()
+    db.refresh(commander_person)
+    result = validate_assignment(
+        db,
+        company_id=company_data["company"].id,
+        person=commander_person,
+        mission=mission,
+        existing_assignments=[],
+        missions_by_id={mission.id: mission},
+        required_role_id=company_data["soldier"].id,
+        exact_role=True,
+    )
+    assert not result.ok
+    assert any(v.code == "role" for v in result.hard_violations)
+
+
 def test_soldier_cannot_fill_commander_slot(db, company_data):
     soldier_person = Person(
         company_id=company_data["company"].id,

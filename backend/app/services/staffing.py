@@ -12,6 +12,7 @@ class StaffingReq:
     role_id: Optional[int]
     qualification_id: Optional[int]
     count: int
+    exact_role: bool = False
 
 
 @dataclass

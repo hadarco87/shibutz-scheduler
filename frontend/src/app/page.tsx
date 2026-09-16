@@ -285,6 +285,7 @@ export default function HomePage() {
           role_id: r.role_id ?? null,
           qualification_id: r.qualification_id ?? null,
           count: r.count,
+          exact_role: Boolean(r.exact_role),
         })),
       });
     }

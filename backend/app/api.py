@@ -342,6 +342,7 @@ def _replace_staffing_bands(db: Session, mt_id: int, bands: list) -> None:
                     role_id=rd.get("role_id"),
                     qualification_id=rd.get("qualification_id"),
                     count=int(rd.get("count", 1)),
+                    exact_role=bool(rd.get("exact_role", False)),
                 )
             )
 
@@ -394,6 +395,7 @@ def mission_type_out(mt: MissionType) -> MissionTypeOut:
                 role_id=r.role_id,
                 qualification_id=r.qualification_id,
                 count=r.count,
+                exact_role=bool(getattr(r, "exact_role", False)),
             )
             for r in mt.default_requirements
         ],
@@ -420,6 +422,7 @@ def mission_type_out(mt: MissionType) -> MissionTypeOut:
                         role_id=r.role_id,
                         qualification_id=r.qualification_id,
                         count=r.count,
+                        exact_role=bool(getattr(r, "exact_role", False)),
                     )
                     for r in (b.requirements or [])
                 ],
@@ -449,6 +452,7 @@ def mission_out(m: Mission) -> MissionOut:
                 qualification_id=r.qualification_id,
                 count=r.count,
                 label=r.label,
+                exact_role=bool(getattr(r, "exact_role", False)),
             )
             for r in m.requirements
         ],
@@ -1745,7 +1749,12 @@ def create_mission(
         raise HTTPException(404, "סוג משימה לא נמצא")
 
     default_reqs = [
-        StaffingReq(r.role_id, r.qualification_id, r.count)
+        StaffingReq(
+            r.role_id,
+            r.qualification_id,
+            r.count,
+            bool(getattr(r, "exact_role", False)),
+        )
         for r in mt.default_requirements
     ]
     bands = [
@@ -1755,7 +1764,12 @@ def create_mission(
             b.personnel_count,
             b.label,
             [
-                StaffingReq(r.role_id, r.qualification_id, r.count)
+                StaffingReq(
+                    r.role_id,
+                    r.qualification_id,
+                    r.count,
+                    bool(getattr(r, "exact_role", False)),
+                )
                 for r in (b.requirements or [])
             ],
         )
@@ -1811,6 +1825,7 @@ def create_mission(
                     "qualification_id": r.qualification_id,
                     "count": r.count,
                     "label": None,
+                    "exact_role": bool(r.exact_role),
                 }
                 for r in resolved.requirements
             ]
@@ -1821,6 +1836,7 @@ def create_mission(
                     "qualification_id": r.qualification_id,
                     "count": r.count,
                     "label": None,
+                    "exact_role": bool(getattr(r, "exact_role", False)),
                 }
                 for r in mt.default_requirements
             ]

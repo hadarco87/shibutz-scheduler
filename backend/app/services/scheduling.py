@@ -328,7 +328,12 @@ def _schedule_has_mission_type(db: Session, schedule_id: int, mission_type_id: i
 
 def _staffing_from_type(t: MissionType, start: datetime):
     default_reqs = [
-        StaffingReq(r.role_id, r.qualification_id, r.count)
+        StaffingReq(
+            r.role_id,
+            r.qualification_id,
+            r.count,
+            bool(getattr(r, "exact_role", False)),
+        )
         for r in (t.default_requirements or [])
     ]
     bands = []
@@ -343,7 +348,12 @@ def _staffing_from_type(t: MissionType, start: datetime):
                 b.personnel_count,
                 b.label,
                 [
-                    StaffingReq(r.role_id, r.qualification_id, r.count)
+                    StaffingReq(
+                        r.role_id,
+                        r.qualification_id,
+                        r.count,
+                        bool(getattr(r, "exact_role", False)),
+                    )
                     for r in (b.requirements or [])
                 ],
             )
@@ -387,6 +397,7 @@ def _add_mission_with_staffing(
                     role_id=req.role_id,
                     qualification_id=req.qualification_id,
                     count=req.count,
+                    exact_role=bool(req.exact_role),
                 )
             )
     else:
@@ -697,6 +708,7 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
                     missions_by_id=missions_by_id,
                     required_role_id=slot.role_id,
                     required_qualification_id=slot.qualification_id,
+                    exact_role=bool(getattr(slot, "exact_role", False)),
                 )
                 if not result.ok:
                     if result.hard_violations:
@@ -966,6 +978,7 @@ def list_replacement_candidates(
 
     required_role_id = req.role_id if req else None
     required_qualification_id = req.qualification_id if req else None
+    exact_role = bool(getattr(req, "exact_role", False)) if req else False
 
     role_name = None
     if required_role_id:
@@ -979,6 +992,8 @@ def list_replacement_candidates(
     slot_parts: List[str] = []
     if role_name:
         slot_parts.append(f"תפקיד «{role_name}»")
+        if exact_role:
+            slot_parts.append("מדויק בלבד")
     if qual_name:
         slot_parts.append(f"פק״ל «{qual_name}»")
     slot_label = " + ".join(slot_parts) if slot_parts else "איוש כללי"
@@ -986,7 +1001,11 @@ def list_replacement_candidates(
     if qual_name:
         empty_message = f"אין אנשים עם פק״ל «{qual_name}» שזמינים למשבצת הזו כרגע"
     elif role_name:
-        empty_message = f"אין אנשים שיכולים למלא תפקיד «{role_name}» שזמינים למשבצת הזו כרגע"
+        empty_message = (
+            f"אין אנשים עם תפקיד «{role_name}» במדויק שזמינים למשבצת הזו כרגע"
+            if exact_role
+            else f"אין אנשים שיכולים למלא תפקיד «{role_name}» שזמינים למשבצת הזו כרגע"
+        )
     else:
         empty_message = "אין חיילים זמינים למשבצת הזו כרגע"
 
@@ -1004,6 +1023,7 @@ def list_replacement_candidates(
             missions_by_id=missions_by_id,
             required_role_id=required_role_id,
             required_qualification_id=required_qualification_id,
+            exact_role=exact_role,
         )
 
         if mode == "matching":
@@ -1136,6 +1156,7 @@ def replace_assignment(
         missions_by_id=missions_by_id,
         required_role_id=req.role_id if req else None,
         required_qualification_id=req.qualification_id if req else None,
+        exact_role=bool(getattr(req, "exact_role", False)) if req else False,
         allow_override=bool(override_reason),
         override_reason=override_reason,
     )

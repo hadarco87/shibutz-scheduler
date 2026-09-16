@@ -72,9 +72,17 @@ def get_min_rest_hours(db: Session, company_id: int, default: float = 6.0) -> fl
     return default
 
 
-def role_can_fulfill(db: Session, person_role_id: int, required_role_id: int) -> bool:
+def role_can_fulfill(
+    db: Session,
+    person_role_id: int,
+    required_role_id: int,
+    *,
+    exact_role: bool = False,
+) -> bool:
     if person_role_id == required_role_id:
         return True
+    if exact_role:
+        return False
     cap = (
         db.query(RoleCapability)
         .filter(
@@ -172,6 +180,7 @@ def validate_assignment(
     missions_by_id: Dict[int, Mission],
     required_role_id: Optional[int] = None,
     required_qualification_id: Optional[int] = None,
+    exact_role: bool = False,
     allow_override: bool = False,
     override_reason: Optional[str] = None,
 ) -> ValidationResult:
@@ -272,17 +281,24 @@ def validate_assignment(
             )
         )
 
-    if required_role_id and not role_can_fulfill(db, person.role_id, required_role_id):
+    if required_role_id and not role_can_fulfill(
+        db, person.role_id, required_role_id, exact_role=exact_role
+    ):
         role = db.get(Role, required_role_id)
         role_name = role.name if role else str(required_role_id)
         violations.append(
             Violation(
                 "hard",
                 "role",
-                f"{person.full_name} אינו יכול למלא את התפקיד «{role_name}»",
+                f"{person.full_name} אינו יכול למלא את התפקיד «{role_name}»"
+                + (" (נדרש תפקיד מדויק)" if exact_role else ""),
                 mission.id,
                 person.id,
-                {"required_role_id": required_role_id, "required_role_name": role_name},
+                {
+                    "required_role_id": required_role_id,
+                    "required_role_name": role_name,
+                    "exact_role": exact_role,
+                },
             )
         )
 
@@ -413,7 +429,12 @@ def validate_mission_staffing(
                 role_ok = True
                 qual_ok = True
                 if req.role_id:
-                    role_ok = role_can_fulfill(db, person.role_id, req.role_id)
+                    role_ok = role_can_fulfill(
+                        db,
+                        person.role_id,
+                        req.role_id,
+                        exact_role=bool(getattr(req, "exact_role", False)),
+                    )
                 if req.qualification_id:
                     qual_ok = req.qualification_id in person_qualification_ids(person)
                 if role_ok and qual_ok:
@@ -491,6 +512,7 @@ def validate_schedule(db: Session, schedule: Schedule) -> ValidationResult:
                 missions_by_id=missions_by_id,
                 required_role_id=req.role_id if req else None,
                 required_qualification_id=req.qualification_id if req else None,
+                exact_role=bool(getattr(req, "exact_role", False)) if req else False,
                 allow_override=bool(a.override_reason),
                 override_reason=a.override_reason,
             )

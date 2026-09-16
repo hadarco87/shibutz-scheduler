@@ -290,6 +290,7 @@ export function resolveStaffingForStart(
       role_id?: number | null;
       qualification_id?: number | null;
       count: number;
+      exact_role?: boolean;
     }[];
     staffing_bands?: {
       label?: string | null;
@@ -300,6 +301,7 @@ export function resolveStaffingForStart(
         role_id?: number | null;
         qualification_id?: number | null;
         count: number;
+        exact_role?: boolean;
       }[];
     }[];
   }
@@ -309,6 +311,7 @@ export function resolveStaffingForStart(
     role_id?: number | null;
     qualification_id?: number | null;
     count: number;
+    exact_role?: boolean;
   }[];
   band_label?: string | null;
 } {

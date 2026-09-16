@@ -32,6 +32,7 @@ type ReqDraft = {
   roleId: number | "";
   qualId: number | "";
   count: number;
+  exactRole: boolean;
 };
 
 type WindowDraft = { start: string; end: string };
@@ -352,6 +353,7 @@ export default function SettingsPage() {
             roleId: (r.role_id || "") as number | "",
             qualId: (r.qualification_id || "") as number | "",
             count: r.count,
+            exactRole: Boolean(r.exact_role),
           })
         ),
       }))
@@ -362,6 +364,7 @@ export default function SettingsPage() {
           roleId: (r.role_id || "") as number | "",
           qualId: (r.qualification_id || "") as number | "",
           count: r.count,
+          exactRole: Boolean(r.exact_role),
         })
       )
     );
@@ -410,6 +413,7 @@ export default function SettingsPage() {
         roleId: activeRoles[0]?.id ?? "",
         qualId: "",
         count: 1,
+        exactRole: false,
       },
     ]);
   }
@@ -456,6 +460,7 @@ export default function SettingsPage() {
               role_id: roleId,
               qualification_id: qualId,
               count: r.count,
+              exact_role: Boolean(r.exactRole),
             };
           })
           .filter((r) => r.role_id != null || r.qualification_id != null),
@@ -572,6 +577,7 @@ export default function SettingsPage() {
                     : null,
               qualification_id: r.qualId !== "" ? Number(r.qualId) : null,
               count: r.count,
+              exact_role: Boolean(r.exactRole),
             }))
             .filter((r) => r.role_id != null || r.qualification_id != null),
           resolveReqNames
@@ -2570,6 +2576,33 @@ export default function SettingsPage() {
                                             setMtBands(next);
                                           }}
                                         />
+                                        <label
+                                          style={{
+                                            display: "inline-flex",
+                                            gap: "0.3rem",
+                                            alignItems: "center",
+                                            color: "var(--ink-soft)",
+                                            fontSize: "0.88rem",
+                                            whiteSpace: "nowrap",
+                                          }}
+                                          title="בלי יכולות מילוי בין תפקידים — רק מי שתפקידו זה בדיוק"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(r.exactRole)}
+                                            onChange={(e) => {
+                                              const next = [...mtBands];
+                                              const reqs = [...band.reqs];
+                                              reqs[rIdx] = {
+                                                ...r,
+                                                exactRole: e.target.checked,
+                                              };
+                                              next[bIdx] = { ...band, reqs };
+                                              setMtBands(next);
+                                            }}
+                                          />
+                                          רק תפקיד זה במדויק
+                                        </label>
                                         <button
                                           className="btn btn-ghost btn-small"
                                           type="button"
@@ -2605,6 +2638,7 @@ export default function SettingsPage() {
                                             roleId: activeRoles[0]?.id ?? "",
                                             qualId: "",
                                             count: 1,
+                                            exactRole: false,
                                           },
                                         ],
                                       };
@@ -2633,6 +2667,7 @@ export default function SettingsPage() {
                                           roleId: activeRoles[0]?.id ?? "",
                                           qualId: "",
                                           count: mtBands.length === 0 ? 1 : 2,
+                                          exactRole: false,
                                         },
                                       ],
                                     },
@@ -2848,6 +2883,31 @@ export default function SettingsPage() {
                                     setReqsCapped(next);
                                   }}
                                 />
+                                <label
+                                  style={{
+                                    display: "inline-flex",
+                                    gap: "0.3rem",
+                                    alignItems: "center",
+                                    color: "var(--ink-soft)",
+                                    fontSize: "0.88rem",
+                                    whiteSpace: "nowrap",
+                                  }}
+                                  title="בלי יכולות מילוי בין תפקידים — רק מי שתפקידו זה בדיוק"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(r.exactRole)}
+                                    onChange={(e) => {
+                                      const next = [...reqs];
+                                      next[idx] = {
+                                        ...r,
+                                        exactRole: e.target.checked,
+                                      };
+                                      setReqsCapped(next);
+                                    }}
+                                  />
+                                  רק תפקיד זה במדויק
+                                </label>
                                 <button
                                   className="btn btn-ghost btn-small"
                                   type="button"

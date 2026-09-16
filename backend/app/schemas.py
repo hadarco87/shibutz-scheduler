@@ -206,6 +206,7 @@ class MissionTypeRequirementIn(BaseModel):
     role_id: Optional[int] = None
     qualification_id: Optional[int] = None
     count: int = 1
+    exact_role: bool = False
 
 
 class MissionTypeWindowIn(BaseModel):
@@ -218,6 +219,7 @@ class MissionTypeBandRequirementIn(BaseModel):
     role_id: Optional[int] = None
     qualification_id: Optional[int] = None
     count: int = 1
+    exact_role: bool = False
 
 
 class MissionTypeStaffingBandIn(BaseModel):
@@ -277,6 +279,7 @@ class MissionTypeRequirementOut(ORMModel):
     role_id: Optional[int]
     qualification_id: Optional[int]
     count: int
+    exact_role: bool = False
 
 
 class MissionTypeWindowOut(ORMModel):
@@ -291,6 +294,7 @@ class MissionTypeBandRequirementOut(ORMModel):
     role_id: Optional[int]
     qualification_id: Optional[int]
     count: int
+    exact_role: bool = False
 
 
 class MissionTypeStaffingBandOut(ORMModel):
@@ -410,6 +414,7 @@ class MissionRequirementIn(BaseModel):
     qualification_id: Optional[int] = None
     count: int = 1
     label: Optional[str] = None
+    exact_role: bool = False
 
 
 class MissionCreate(BaseModel):
@@ -442,6 +447,7 @@ class MissionRequirementOut(ORMModel):
     qualification_id: Optional[int]
     count: int
     label: Optional[str]
+    exact_role: bool = False
 
 
 class MissionOut(ORMModel):

@@ -404,6 +404,7 @@ export type MissionTypeRequirement = {
   role_id?: number | null;
   qualification_id?: number | null;
   count: number;
+  exact_role?: boolean;
 };
 
 export type MissionTypeWindow = {
