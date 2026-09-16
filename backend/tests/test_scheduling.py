@@ -809,6 +809,46 @@ def test_prefer_soldier_on_open_qualification_slot(db, company_data):
     assert assigned_ids == [soldier.id]
 
 
+
+def test_routine_uniform_includes_overnight_carry_in(db, company_data):
+    """8h cycle from 05:00 must cover 00:00–05:00 via previous-day overnight."""
+    from app.services.scheduling import _instantiate_routine_type
+
+    mt = MissionType(
+        company_id=company_data["company"].id,
+        name="סיור",
+        difficulty_weight=3,
+        default_personnel_count=1,
+        is_recurring_template=True,
+        recurrence_kind="daily",
+        routine_hours_mode="uniform",
+        default_duration_hours=8,
+        recurring_start_hour=5,
+    )
+    db.add(mt)
+    db.flush()
+    schedule = Schedule(
+        company_id=company_data["company"].id,
+        window_start=datetime(2026, 9, 16, 0),
+        window_end=datetime(2026, 9, 17, 0),
+        status=ScheduleStatus.DRAFT,
+        created_by_id=company_data["user"].id,
+    )
+    db.add(schedule)
+    db.commit()
+    db.refresh(mt)
+
+    created = _instantiate_routine_type(db, schedule, mt)
+    starts = [m.start_at for m in created]
+    assert starts == [
+        datetime(2026, 9, 15, 21),
+        datetime(2026, 9, 16, 5),
+        datetime(2026, 9, 16, 13),
+        datetime(2026, 9, 16, 21),
+    ]
+    assert created[0].end_at == datetime(2026, 9, 16, 5)
+
+
 def test_routine_every_n_days_and_custom_segments(db, company_data):
     from datetime import date
 
@@ -857,7 +897,8 @@ def test_routine_every_n_days_and_custom_segments(db, company_data):
     assert created[1].start_at == datetime(2026, 9, 16, 16)
     assert created[1].end_at == datetime(2026, 9, 17, 2)
 
-    # Next day in window should not match every-3-days
+    # Next calendar day is not an every-3-days match, but overnight from the
+    # previous matching day still covers early morning.
     schedule2 = Schedule(
         company_id=company_data["company"].id,
         window_start=datetime(2026, 9, 17, 0),
@@ -867,7 +908,10 @@ def test_routine_every_n_days_and_custom_segments(db, company_data):
     )
     db.add(schedule2)
     db.commit()
-    assert _instantiate_routine_type(db, schedule2, mt) == []
+    carry = _instantiate_routine_type(db, schedule2, mt)
+    assert len(carry) == 1
+    assert carry[0].start_at == datetime(2026, 9, 16, 16)
+    assert carry[0].end_at == datetime(2026, 9, 17, 2)
 
 
 def test_generate_rebuilds_missions_from_updated_type_settings(db, company_data):

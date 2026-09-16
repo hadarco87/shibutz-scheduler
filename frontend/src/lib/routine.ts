@@ -40,7 +40,7 @@ export function formatSegmentLabel(startHour: number, length: number): string {
   return `${formatHourLabel(startHour)}–${endLabel}${crosses ? " (ליום הבא)" : ""}`;
 }
 
-/** Shifts whose start falls inside [windowStart, windowEnd). */
+/** Shifts that overlap [windowStart, windowEnd), including overnight carry-in. */
 export function routineShiftsForWindow(
   durationHours: number,
   startHour: number,
@@ -55,6 +55,7 @@ export function routineShiftsForWindow(
 
   const day = new Date(ws);
   day.setHours(0, 0, 0, 0);
+  day.setDate(day.getDate() - 1);
   const last = new Date(we.getTime() - 1);
   last.setHours(0, 0, 0, 0);
 
@@ -64,8 +65,8 @@ export function routineShiftsForWindow(
       const h = Math.floor(seg.startHour);
       const m = Math.round((seg.startHour - h) * 60);
       start.setHours(h, m, 0, 0);
-      if (!(ws <= start && start < we)) continue;
       const end = new Date(start.getTime() + seg.length * 3600000);
+      if (!(start < we && end > ws)) continue;
       out.push({ start, end });
     }
   }
@@ -133,6 +134,7 @@ export function routineMissionsForWindow(
   const we = new Date(windowEnd);
   const day = new Date(ws);
   day.setHours(0, 0, 0, 0);
+  day.setDate(day.getDate() - 1);
   const last = new Date(we.getTime() - 1);
   last.setHours(0, 0, 0, 0);
   const mode = (mt.routine_hours_mode || "uniform").toLowerCase();
@@ -160,7 +162,7 @@ export function routineMissionsForWindow(
         if (w.end_minute <= w.start_minute) {
           end.setDate(end.getDate() + 1);
         }
-        if (!(ws <= start && start < we)) continue;
+        if (!(start < we && end > ws)) continue;
         if (end <= start) continue;
         out.push({ start, end });
       }
@@ -179,8 +181,8 @@ export function routineMissionsForWindow(
         const h = Math.floor(seg.startHour);
         const m = Math.round((seg.startHour - h) * 60);
         start.setHours(h, m, 0, 0);
-        if (!(ws <= start && start < we)) continue;
         const end = new Date(start.getTime() + seg.length * 3600000);
+        if (!(start < we && end > ws)) continue;
         out.push({ start, end });
       }
     }
@@ -291,6 +293,7 @@ export function resolveStaffingForStart(
       qualification_id?: number | null;
       count: number;
       exact_role?: boolean;
+      exact_qualification?: boolean;
     }[];
     staffing_bands?: {
       label?: string | null;
@@ -302,6 +305,7 @@ export function resolveStaffingForStart(
         qualification_id?: number | null;
         count: number;
         exact_role?: boolean;
+        exact_qualification?: boolean;
       }[];
     }[];
   }
@@ -312,6 +316,7 @@ export function resolveStaffingForStart(
     qualification_id?: number | null;
     count: number;
     exact_role?: boolean;
+    exact_qualification?: boolean;
   }[];
   band_label?: string | null;
 } {

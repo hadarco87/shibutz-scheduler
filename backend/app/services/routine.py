@@ -59,3 +59,10 @@ def shifts_for_calendar_day(
         out.append((start, end))
     out.sort(key=lambda x: x[0])
     return out
+
+
+def interval_overlaps_window(
+    start: datetime, end: datetime, window_start: datetime, window_end: datetime
+) -> bool:
+    """True when [start, end) overlaps [window_start, window_end)."""
+    return start < window_end and end > window_start

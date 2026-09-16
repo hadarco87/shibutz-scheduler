@@ -52,3 +52,16 @@ def test_shifts_for_calendar_day():
     assert shifts[1][0] == datetime(2026, 9, 15, 13, 0)
     assert shifts[2][0] == datetime(2026, 9, 15, 21, 0)
     assert shifts[2][1] == datetime(2026, 9, 16, 5, 0)
+
+
+def test_interval_overlaps_window():
+    from app.services.routine import interval_overlaps_window
+
+    ws = datetime(2026, 9, 16, 0)
+    we = datetime(2026, 9, 17, 0)
+    assert interval_overlaps_window(
+        datetime(2026, 9, 15, 21), datetime(2026, 9, 16, 5), ws, we
+    )
+    assert not interval_overlaps_window(
+        datetime(2026, 9, 15, 5), datetime(2026, 9, 15, 13), ws, we
+    )

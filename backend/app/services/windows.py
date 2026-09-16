@@ -50,10 +50,10 @@ def shifts_for_windows_in_range(
     window_end: datetime,
     windows: List[Tuple[int, int]],
 ) -> List[Tuple[datetime, datetime]]:
-    """Create mission intervals for each window on each calendar day overlapping range.
+    """Create mission intervals overlapping [window_start, window_end).
 
-    A mission is included when its start falls in [window_start, window_end).
-    Overnight ends may extend past window_end.
+    Includes overnight carry-in from the previous calendar day (start before
+    window_start, end inside the window).
     """
     if not windows:
         return []
@@ -62,11 +62,11 @@ def shifts_for_windows_in_range(
         hour=0, minute=0, second=0, microsecond=0
     )
     out: List[Tuple[datetime, datetime]] = []
-    d = day
+    d = day - timedelta(days=1)
     while d <= last:
         for start_m, end_m in windows:
             start, end = window_datetimes(d, start_m, end_m)
-            if window_start <= start < window_end:
+            if start < window_end and end > window_start:
                 out.append((start, end))
         d += timedelta(days=1)
     out.sort(key=lambda x: x[0])

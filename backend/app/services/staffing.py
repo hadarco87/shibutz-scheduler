@@ -13,6 +13,7 @@ class StaffingReq:
     qualification_id: Optional[int]
     count: int
     exact_role: bool = False
+    exact_qualification: bool = True
 
 
 @dataclass

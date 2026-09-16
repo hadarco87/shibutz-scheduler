@@ -245,6 +245,7 @@ export default function HomePage() {
           qualification_id: r.qualification_id ?? null,
           count: r.count,
           exact_role: Boolean(r.exact_role),
+          exact_qualification: r.exact_qualification !== false,
         })),
       });
     }

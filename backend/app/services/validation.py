@@ -181,6 +181,7 @@ def validate_assignment(
     required_role_id: Optional[int] = None,
     required_qualification_id: Optional[int] = None,
     exact_role: bool = False,
+    exact_qualification: bool = True,
     allow_override: bool = False,
     override_reason: Optional[str] = None,
 ) -> ValidationResult:
@@ -303,19 +304,23 @@ def validate_assignment(
         )
 
     if required_qualification_id:
-        if required_qualification_id not in person_qualification_ids(person):
+        has_qual = required_qualification_id in person_qualification_ids(person)
+        if not has_qual:
             qual = db.get(Qualification, required_qualification_id)
             qual_name = qual.name if qual else str(required_qualification_id)
+            severity = "hard" if exact_qualification else "soft"
             violations.append(
                 Violation(
-                    "hard",
+                    severity,
                     "qualification",
-                    f"{person.full_name} חסר פק״ל «{qual_name}»",
+                    f"{person.full_name} חסר פק״ל «{qual_name}»"
+                    + ("" if exact_qualification else " (העדפה בלבד)"),
                     mission.id,
                     person.id,
                     {
                         "required_qualification_id": required_qualification_id,
                         "required_qualification_name": qual_name,
+                        "exact_qualification": exact_qualification,
                     },
                 )
             )
@@ -436,7 +441,13 @@ def validate_mission_staffing(
                         exact_role=bool(getattr(req, "exact_role", False)),
                     )
                 if req.qualification_id:
-                    qual_ok = req.qualification_id in person_qualification_ids(person)
+                    has_qual = req.qualification_id in person_qualification_ids(person)
+                    exact_q = getattr(req, "exact_qualification", None)
+                    if exact_q is None:
+                        exact_q = True
+                    # Soft qualification preference still counts as staffing match.
+                    qual_ok = has_qual or not bool(exact_q)
+
                 if role_ok and qual_ok:
                     matching += 1
                     used_assignment_ids.add(a.id)
@@ -513,6 +524,11 @@ def validate_schedule(db: Session, schedule: Schedule) -> ValidationResult:
                 required_role_id=req.role_id if req else None,
                 required_qualification_id=req.qualification_id if req else None,
                 exact_role=bool(getattr(req, "exact_role", False)) if req else False,
+                exact_qualification=(
+                    True
+                    if req is None or getattr(req, "exact_qualification", None) is None
+                    else bool(req.exact_qualification)
+                ),
                 allow_override=bool(a.override_reason),
                 override_reason=a.override_reason,
             )

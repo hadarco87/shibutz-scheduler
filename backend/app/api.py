@@ -343,6 +343,7 @@ def _replace_staffing_bands(db: Session, mt_id: int, bands: list) -> None:
                     qualification_id=rd.get("qualification_id"),
                     count=int(rd.get("count", 1)),
                     exact_role=bool(rd.get("exact_role", False)),
+                    exact_qualification=bool(rd.get("exact_qualification", True)),
                 )
             )
 
@@ -396,6 +397,11 @@ def mission_type_out(mt: MissionType) -> MissionTypeOut:
                 qualification_id=r.qualification_id,
                 count=r.count,
                 exact_role=bool(getattr(r, "exact_role", False)),
+                exact_qualification=(
+                    True
+                    if getattr(r, "exact_qualification", None) is None
+                    else bool(r.exact_qualification)
+                ),
             )
             for r in mt.default_requirements
         ],
@@ -423,6 +429,11 @@ def mission_type_out(mt: MissionType) -> MissionTypeOut:
                         qualification_id=r.qualification_id,
                         count=r.count,
                         exact_role=bool(getattr(r, "exact_role", False)),
+                        exact_qualification=(
+                            True
+                            if getattr(r, "exact_qualification", None) is None
+                            else bool(r.exact_qualification)
+                        ),
                     )
                     for r in (b.requirements or [])
                 ],
@@ -453,6 +464,11 @@ def mission_out(m: Mission) -> MissionOut:
                 count=r.count,
                 label=r.label,
                 exact_role=bool(getattr(r, "exact_role", False)),
+                exact_qualification=(
+                    True
+                    if getattr(r, "exact_qualification", None) is None
+                    else bool(r.exact_qualification)
+                ),
             )
             for r in m.requirements
         ],
@@ -1754,6 +1770,9 @@ def create_mission(
             r.qualification_id,
             r.count,
             bool(getattr(r, "exact_role", False)),
+            True
+            if getattr(r, "exact_qualification", None) is None
+            else bool(r.exact_qualification),
         )
         for r in mt.default_requirements
     ]
@@ -1769,6 +1788,9 @@ def create_mission(
                     r.qualification_id,
                     r.count,
                     bool(getattr(r, "exact_role", False)),
+                    True
+                    if getattr(r, "exact_qualification", None) is None
+                    else bool(r.exact_qualification),
                 )
                 for r in (b.requirements or [])
             ],
@@ -1826,6 +1848,7 @@ def create_mission(
                     "count": r.count,
                     "label": None,
                     "exact_role": bool(r.exact_role),
+                    "exact_qualification": bool(r.exact_qualification),
                 }
                 for r in resolved.requirements
             ]
@@ -1837,6 +1860,11 @@ def create_mission(
                     "count": r.count,
                     "label": None,
                     "exact_role": bool(getattr(r, "exact_role", False)),
+                    "exact_qualification": (
+                        True
+                        if getattr(r, "exact_qualification", None) is None
+                        else bool(r.exact_qualification)
+                    ),
                 }
                 for r in mt.default_requirements
             ]

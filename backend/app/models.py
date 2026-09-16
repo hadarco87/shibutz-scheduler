@@ -338,6 +338,8 @@ class MissionTypeRequirement(Base):
     count: Mapped[int] = mapped_column(Integer, default=1)
     # When True, only person.role_id == role_id counts (ignore RoleCapability).
     exact_role: Mapped[bool] = mapped_column(Boolean, default=False)
+    # When True (default), required qualification is hard; False = soft preference.
+    exact_qualification: Mapped[bool] = mapped_column(Boolean, default=True)
 
     mission_type: Mapped["MissionType"] = relationship(back_populates="default_requirements")
     role: Mapped[Optional["Role"]] = relationship()
@@ -394,6 +396,7 @@ class MissionTypeBandRequirement(Base):
     )
     count: Mapped[int] = mapped_column(Integer, default=1)
     exact_role: Mapped[bool] = mapped_column(Boolean, default=False)
+    exact_qualification: Mapped[bool] = mapped_column(Boolean, default=True)
 
     band: Mapped["MissionTypeStaffingBand"] = relationship(back_populates="requirements")
     role: Mapped[Optional["Role"]] = relationship()
@@ -439,6 +442,7 @@ class MissionRequirement(Base):
     count: Mapped[int] = mapped_column(Integer, default=1)
     label: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     exact_role: Mapped[bool] = mapped_column(Boolean, default=False)
+    exact_qualification: Mapped[bool] = mapped_column(Boolean, default=True)
 
     mission: Mapped["Mission"] = relationship(back_populates="requirements")
     role: Mapped[Optional["Role"]] = relationship()

@@ -339,6 +339,9 @@ def _staffing_from_type(t: MissionType, start: datetime):
             r.qualification_id,
             r.count,
             bool(getattr(r, "exact_role", False)),
+            True
+            if getattr(r, "exact_qualification", None) is None
+            else bool(r.exact_qualification),
         )
         for r in (t.default_requirements or [])
     ]
@@ -359,6 +362,9 @@ def _staffing_from_type(t: MissionType, start: datetime):
                         r.qualification_id,
                         r.count,
                         bool(getattr(r, "exact_role", False)),
+                        True
+                        if getattr(r, "exact_qualification", None) is None
+                        else bool(r.exact_qualification),
                     )
                     for r in (b.requirements or [])
                 ],
@@ -404,6 +410,7 @@ def _add_mission_with_staffing(
                     qualification_id=req.qualification_id,
                     count=req.count,
                     exact_role=bool(req.exact_role),
+                    exact_qualification=bool(req.exact_qualification),
                 )
             )
     else:
@@ -420,6 +427,7 @@ def _instantiate_routine_type(
     db: Session, schedule: Schedule, t: MissionType
 ) -> List[Mission]:
     from app.services.calendar_recurrence import day_matches_recurrence
+    from app.services.routine import interval_overlaps_window
     from app.services.windows import window_datetimes
 
     ws = schedule.window_start
@@ -431,7 +439,9 @@ def _instantiate_routine_type(
     kind = getattr(t, "recurrence_kind", None) or "daily"
     hours_mode = getattr(t, "routine_hours_mode", None) or "uniform"
     created: List[Mission] = []
-    d = day
+    # Walk one day before the window so overnight shifts (e.g. 21:00→05:00)
+    # that cover [00:00, cycle_start) are included.
+    d = day - timedelta(days=1)
     while d <= last_day:
         if not day_matches_recurrence(
             d,
@@ -463,8 +473,23 @@ def _instantiate_routine_type(
             )
 
         for start, end in shifts:
-            if not (ws <= start < we):
+            if not interval_overlaps_window(start, end, ws, we):
                 continue
+            # In multi-day plans, overnight that started on a previous plan day
+            # already lives on that day's schedule — don't duplicate it here.
+            if start < ws and schedule.plan_id is not None:
+                sibling = (
+                    db.query(Schedule.id)
+                    .filter(
+                        Schedule.plan_id == schedule.plan_id,
+                        Schedule.id != schedule.id,
+                        Schedule.window_start <= start,
+                        Schedule.window_end > start,
+                    )
+                    .first()
+                )
+                if sibling:
+                    continue
             created.append(
                 _add_mission_with_staffing(
                     db, schedule, t, start, end, is_adhoc=False
@@ -715,6 +740,11 @@ def generate_schedule(db: Session, schedule: Schedule, user_id: Optional[int] = 
                     required_role_id=slot.role_id,
                     required_qualification_id=slot.qualification_id,
                     exact_role=bool(getattr(slot, "exact_role", False)),
+                    exact_qualification=(
+                        True
+                        if getattr(slot, "exact_qualification", None) is None
+                        else bool(slot.exact_qualification)
+                    ),
                 )
                 if not result.ok:
                     if result.hard_violations:
@@ -985,6 +1015,11 @@ def list_replacement_candidates(
     required_role_id = req.role_id if req else None
     required_qualification_id = req.qualification_id if req else None
     exact_role = bool(getattr(req, "exact_role", False)) if req else False
+    exact_qualification = (
+        True
+        if req is None or getattr(req, "exact_qualification", None) is None
+        else bool(req.exact_qualification)
+    )
 
     role_name = None
     if required_role_id:
@@ -1002,9 +1037,11 @@ def list_replacement_candidates(
             slot_parts.append("מדויק בלבד")
     if qual_name:
         slot_parts.append(f"פק״ל «{qual_name}»")
+        if exact_qualification:
+            slot_parts.append("פק״ל מדויק")
     slot_label = " + ".join(slot_parts) if slot_parts else "איוש כללי"
 
-    if qual_name:
+    if qual_name and exact_qualification:
         empty_message = f"אין אנשים עם פק״ל «{qual_name}» שזמינים למשבצת הזו כרגע"
     elif role_name:
         empty_message = (
@@ -1030,6 +1067,7 @@ def list_replacement_candidates(
             required_role_id=required_role_id,
             required_qualification_id=required_qualification_id,
             exact_role=exact_role,
+            exact_qualification=exact_qualification,
         )
 
         if mode == "matching":
@@ -1163,6 +1201,11 @@ def replace_assignment(
         required_role_id=req.role_id if req else None,
         required_qualification_id=req.qualification_id if req else None,
         exact_role=bool(getattr(req, "exact_role", False)) if req else False,
+        exact_qualification=(
+            True
+            if req is None or getattr(req, "exact_qualification", None) is None
+            else bool(req.exact_qualification)
+        ),
         allow_override=bool(override_reason),
         override_reason=override_reason,
     )

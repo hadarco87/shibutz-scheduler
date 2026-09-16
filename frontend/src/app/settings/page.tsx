@@ -33,6 +33,7 @@ type ReqDraft = {
   qualId: number | "";
   count: number;
   exactRole: boolean;
+  exactQual: boolean;
 };
 
 type WindowDraft = { start: string; end: string };
@@ -354,6 +355,7 @@ export default function SettingsPage() {
             qualId: (r.qualification_id || "") as number | "",
             count: r.count,
             exactRole: Boolean(r.exact_role),
+            exactQual: r.exact_qualification !== false,
           })
         ),
       }))
@@ -365,6 +367,7 @@ export default function SettingsPage() {
           qualId: (r.qualification_id || "") as number | "",
           count: r.count,
           exactRole: Boolean(r.exact_role),
+          exactQual: r.exact_qualification !== false,
         })
       )
     );
@@ -414,6 +417,7 @@ export default function SettingsPage() {
         qualId: "",
         count: 1,
         exactRole: false,
+        exactQual: true,
       },
     ]);
   }
@@ -461,6 +465,7 @@ export default function SettingsPage() {
               qualification_id: qualId,
               count: r.count,
               exact_role: Boolean(r.exactRole),
+              exact_qualification: Boolean(r.exactQual),
             };
           })
           .filter((r) => r.role_id != null || r.qualification_id != null),
@@ -578,6 +583,7 @@ export default function SettingsPage() {
               qualification_id: r.qualId !== "" ? Number(r.qualId) : null,
               count: r.count,
               exact_role: Boolean(r.exactRole),
+              exact_qualification: Boolean(r.exactQual),
             }))
             .filter((r) => r.role_id != null || r.qualification_id != null),
           resolveReqNames
@@ -2532,16 +2538,23 @@ export default function SettingsPage() {
                                         <span style={{ color: "var(--ink-soft)" }}>
                                           פק״ל
                                         </span>
-                                        <select
+        <select
                                           value={r.qualId !== "" ? r.qualId : ""}
                                           onChange={(e) => {
                                             const next = [...mtBands];
                                             const reqs = [...band.reqs];
+                                            const qualId = e.target.value
+                                              ? Number(e.target.value)
+                                              : "";
                                             reqs[rIdx] = {
                                               ...r,
-                                              qualId: e.target.value
-                                                ? Number(e.target.value)
-                                                : "",
+                                              qualId,
+                                              exactQual:
+                                                qualId === ""
+                                                  ? false
+                                                  : r.qualId === ""
+                                                    ? true
+                                                    : Boolean(r.exactQual),
                                             };
                                             next[bIdx] = { ...band, reqs };
                                             setMtBands(next);
@@ -2603,6 +2616,35 @@ export default function SettingsPage() {
                                           />
                                           רק תפקיד זה במדויק
                                         </label>
+                                        <label
+                                          style={{
+                                            display: "inline-flex",
+                                            gap: "0.3rem",
+                                            alignItems: "center",
+                                            color: "var(--ink-soft)",
+                                            fontSize: "0.88rem",
+                                            whiteSpace: "nowrap",
+                                            opacity: r.qualId === "" ? 0.45 : 1,
+                                          }}
+                                          title="חובה שהחייל יחזיק בפק״ל שנבחר (בלי זה זו רק העדפה)"
+                                        >
+                                          <input
+                                            type="checkbox"
+                                            checked={Boolean(r.exactQual)}
+                                            disabled={r.qualId === ""}
+                                            onChange={(e) => {
+                                              const next = [...mtBands];
+                                              const reqs = [...band.reqs];
+                                              reqs[rIdx] = {
+                                                ...r,
+                                                exactQual: e.target.checked,
+                                              };
+                                              next[bIdx] = { ...band, reqs };
+                                              setMtBands(next);
+                                            }}
+                                          />
+                                          רק פק״ל זה במדויק
+                                        </label>
                                         <button
                                           className="btn btn-ghost btn-small"
                                           type="button"
@@ -2639,6 +2681,7 @@ export default function SettingsPage() {
                                             qualId: "",
                                             count: 1,
                                             exactRole: false,
+                                            exactQual: true,
                                           },
                                         ],
                                       };
@@ -2668,6 +2711,7 @@ export default function SettingsPage() {
                                           qualId: "",
                                           count: mtBands.length === 0 ? 1 : 2,
                                           exactRole: false,
+                                          exactQual: true,
                                         },
                                       ],
                                     },
@@ -2853,11 +2897,18 @@ export default function SettingsPage() {
                                   value={qualSelected}
                                   onChange={(e) => {
                                     const next = [...reqs];
+                                    const qualId = e.target.value
+                                      ? Number(e.target.value)
+                                      : "";
                                     next[idx] = {
                                       ...r,
-                                      qualId: e.target.value
-                                        ? Number(e.target.value)
-                                        : "",
+                                      qualId,
+                                      exactQual:
+                                        qualId === ""
+                                          ? false
+                                          : r.qualId === ""
+                                            ? true
+                                            : Boolean(r.exactQual),
                                     };
                                     setReqsCapped(next);
                                   }}
@@ -2907,6 +2958,33 @@ export default function SettingsPage() {
                                     }}
                                   />
                                   רק תפקיד זה במדויק
+                                </label>
+                                <label
+                                  style={{
+                                    display: "inline-flex",
+                                    gap: "0.3rem",
+                                    alignItems: "center",
+                                    color: "var(--ink-soft)",
+                                    fontSize: "0.88rem",
+                                    whiteSpace: "nowrap",
+                                    opacity: qualSelected === "" ? 0.45 : 1,
+                                  }}
+                                  title="חובה שהחייל יחזיק בפק״ל שנבחר (בלי זה זו רק העדפה)"
+                                >
+                                  <input
+                                    type="checkbox"
+                                    checked={Boolean(r.exactQual)}
+                                    disabled={qualSelected === ""}
+                                    onChange={(e) => {
+                                      const next = [...reqs];
+                                      next[idx] = {
+                                        ...r,
+                                        exactQual: e.target.checked,
+                                      };
+                                      setReqsCapped(next);
+                                    }}
+                                  />
+                                  רק פק״ל זה במדויק
                                 </label>
                                 <button
                                   className="btn btn-ghost btn-small"

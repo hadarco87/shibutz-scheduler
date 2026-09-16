@@ -167,6 +167,14 @@ def ensure_schema() -> None:
                         "ADD COLUMN exact_role BOOLEAN DEFAULT FALSE"
                     )
                 )
+        if "exact_qualification" not in cols:
+            with engine.begin() as conn:
+                conn.execute(
+                    text(
+                        f"ALTER TABLE {table} "
+                        "ADD COLUMN exact_qualification BOOLEAN DEFAULT TRUE"
+                    )
+                )
 
 
 def get_db():
