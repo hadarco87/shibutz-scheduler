@@ -563,6 +563,16 @@ def schedule_out(db: Session, schedule: Schedule) -> ScheduleOut:
 
 
 def schedule_day_out(s: Schedule) -> ScheduleDayOut:
+    missions = list(s.missions or [])
+    assignments = list(s.assignments or [])
+    assigned_by_mission: dict[int, int] = {}
+    for a in assignments:
+        assigned_by_mission[a.mission_id] = assigned_by_mission.get(a.mission_id, 0) + 1
+    staffing_needed = sum(int(m.personnel_count or 0) for m in missions)
+    staffing_filled = sum(
+        min(int(m.personnel_count or 0), assigned_by_mission.get(m.id, 0))
+        for m in missions
+    )
     return ScheduleDayOut(
         id=s.id,
         plan_id=getattr(s, "plan_id", None),
@@ -571,8 +581,10 @@ def schedule_day_out(s: Schedule) -> ScheduleDayOut:
         window_end=s.window_end,
         status=s.status,
         published_at=s.published_at,
-        assignment_count=len(s.assignments or []),
-        mission_count=len(s.missions or []),
+        assignment_count=len(assignments),
+        mission_count=len(missions),
+        staffing_needed=staffing_needed,
+        staffing_filled=staffing_filled,
     )
 
 

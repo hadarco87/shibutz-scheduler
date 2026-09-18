@@ -136,6 +136,7 @@ export default function HomePage() {
   const [wipeCatalog, setWipeCatalog] = useState(false);
   const [wipePeople, setWipePeople] = useState(false);
   const [wipeBusy, setWipeBusy] = useState(false);
+  const [scrollToUnderstaffed, setScrollToUnderstaffed] = useState(false);
 
   async function loadDaySchedule(
     token: string,
@@ -198,6 +199,26 @@ export default function HomePage() {
     load().catch((e) => setError(e.message));
   }, [load]);
 
+  useEffect(() => {
+    if (!scrollToUnderstaffed || !schedule || busy) return;
+    const firstGap = schedule.missions.find((m) => {
+      const assigned = schedule.assignments.filter((a) => a.mission_id === m.id)
+        .length;
+      return assigned < m.personnel_count;
+    });
+    if (!firstGap) {
+      setScrollToUnderstaffed(false);
+      return;
+    }
+    const t = window.setTimeout(() => {
+      document
+        .getElementById(`mission-card-${firstGap.id}`)
+        ?.scrollIntoView({ behavior: "smooth", block: "center" });
+      setScrollToUnderstaffed(false);
+    }, 80);
+    return () => window.clearTimeout(t);
+  }, [scrollToUnderstaffed, schedule, busy]);
+
   const availableCount = people.length;
   const missionCount = schedule?.missions.length || 0;
   const conflictCount = result?.conflicts.length || 0;
@@ -237,12 +258,6 @@ export default function HomePage() {
         text: "דורש טיפול לפני פרסום",
       };
     }
-    if (staffing.shortfall > 0) {
-      return {
-        tone: "warn" as const,
-        text: `חסרים ${staffing.shortfall} מקומות איוש`,
-      };
-    }
     if (hasRunResult) {
       return {
         tone: "ok" as const,
@@ -252,17 +267,8 @@ export default function HomePage() {
             : "הריצה האחרונה ללא קונפליקטים",
       };
     }
-    return {
-      tone: "muted" as const,
-      text: schedule ? "הריצו «שבץ» לבדיקת חוקים" : "אין חלון פעיל",
-    };
-  }, [
-    conflictCount,
-    staffing.shortfall,
-    hasRunResult,
-    warningCount,
-    schedule,
-  ]);
+    return null;
+  }, [conflictCount, hasRunResult, warningCount]);
 
   const nextScopeHint = useMemo(() => {
     if (planStartKind === "today") {
@@ -411,14 +417,18 @@ export default function HomePage() {
     setBusy(false);
   }
 
-  async function selectPlanDay(dayId: number) {
+  async function selectPlanDay(dayId: number, opts?: { jumpToGap?: boolean }) {
     if (!token || !plan) return;
-    if (schedule?.id === dayId) return;
+    if (schedule?.id === dayId) {
+      if (opts?.jumpToGap) setScrollToUnderstaffed(true);
+      return;
+    }
     startBusy("טוען יום…");
     setError("");
     setResult(null);
     try {
       await loadDaySchedule(token, dayId);
+      if (opts?.jumpToGap) setScrollToUnderstaffed(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : "טעינת היום נכשלה");
     } finally {
@@ -1098,6 +1108,88 @@ export default function HomePage() {
           </div>
         </div>
 
+        {plan && plan.days.length > 1 ? (
+          <section className="schedule-day-picker" aria-label="ימי התוכנית">
+            <div className="schedule-day-picker-head">
+              <h2>ימי התוכנית</h2>
+              <span>
+                יום עם מחסור באיוש מסומן באדום — לחיצה קופצת למשמרת החסרה
+              </span>
+            </div>
+            <div className="day-card-grid" role="tablist">
+              {plan.days.map((d, idx) => {
+                const active = schedule?.id === d.id;
+                const label = new Date(d.window_start).toLocaleDateString(
+                  "he-IL",
+                  { weekday: "short", day: "numeric", month: "numeric" }
+                );
+                const needed =
+                  active && schedule
+                    ? staffing.needed
+                    : d.staffing_needed ?? 0;
+                const filled =
+                  active && schedule
+                    ? staffing.filled
+                    : d.staffing_filled ?? 0;
+                const shortfall = Math.max(0, needed - filled);
+                const hasGap = needed > 0 && shortfall > 0;
+                const hasMissions = d.mission_count > 0;
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    className={`day-pick-card${active ? " active" : ""}${
+                      d.status === "published" ? " published" : ""
+                    }${hasGap ? " understaffed" : ""}`}
+                    disabled={busy}
+                    onClick={() =>
+                      void selectPlanDay(d.id, { jumpToGap: hasGap })
+                    }
+                  >
+                    <div className="day-pick-card-top">
+                      <span className="day-pick-idx">יום {idx + 1}</span>
+                      {d.status === "published" ? (
+                        <span className="day-pick-badge ok">מפורסם</span>
+                      ) : hasGap ? (
+                        <span className="day-pick-badge danger">
+                          חסר איוש {filled}/{needed}
+                        </span>
+                      ) : !hasMissions ? (
+                        <span className="day-pick-badge muted">ללא משימות</span>
+                      ) : filled === 0 ? (
+                        <span className="day-pick-badge warn">טרם שובץ</span>
+                      ) : (
+                        <span className="day-pick-badge ok">מאויש</span>
+                      )}
+                    </div>
+                    <div className="day-pick-date">{label}</div>
+                    <div className="day-pick-foot">
+                      <span>
+                        {d.mission_count} משימות · איוש {filled}/{needed || 0}
+                      </span>
+                      <span
+                        className={`day-pick-dot ${
+                          hasGap
+                            ? "danger"
+                            : d.status === "published" ||
+                                (needed > 0 && shortfall === 0)
+                              ? "ok"
+                              : !hasMissions
+                                ? "muted"
+                                : "warn"
+                        }`}
+                        aria-hidden
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </section>
+        ) : null}
+
         <div className="schedule-metrics">
           <div className="stat-stack">
             <button
@@ -1152,10 +1244,19 @@ export default function HomePage() {
             ) : null}
           </div>
 
-          <div className="metric-card">
+          <div
+            className={`metric-card${staffing.shortfall > 0 ? " metric-card-danger" : ""}`}
+          >
             <div className="metric-card-head">
               <span className="metric-label">משימות ואיוש</span>
-              <span className="metric-icon metric-icon-info" aria-hidden>
+              <span
+                className={`metric-icon ${
+                  staffing.shortfall > 0
+                    ? "metric-icon-danger"
+                    : "metric-icon-info"
+                }`}
+                aria-hidden
+              >
                 ▤
               </span>
             </div>
@@ -1171,7 +1272,7 @@ export default function HomePage() {
                 </strong>
               </span>
               {staffing.shortfall > 0 ? (
-                <span className="metric-foot-warn">
+                <span className="metric-foot-danger">
                   חסר {staffing.shortfall}
                 </span>
               ) : staffing.needed > 0 ? (
@@ -1187,7 +1288,7 @@ export default function HomePage() {
               <span className="metric-label">קונפליקטים</span>
               <span
                 className={`metric-icon ${
-                  conflictCount > 0 || staffing.shortfall > 0
+                  conflictCount > 0
                     ? "metric-icon-danger"
                     : hasRunResult
                       ? "metric-icon-ok"
@@ -1202,89 +1303,21 @@ export default function HomePage() {
               <span className="metric-value">{conflictCount}</span>
               <span className="metric-unit">מריצת השיבוץ</span>
             </div>
-            <div className="metric-foot">
-              <span
-                className={
-                  conflictMetric.tone === "ok"
-                    ? "metric-foot-ok"
-                    : conflictMetric.tone === "warn"
-                      ? "metric-foot-warn"
-                      : "metric-foot-muted"
-                }
-              >
-                {conflictMetric.text}
-              </span>
-            </div>
+            {conflictMetric ? (
+              <div className="metric-foot">
+                <span
+                  className={
+                    conflictMetric.tone === "ok"
+                      ? "metric-foot-ok"
+                      : "metric-foot-warn"
+                  }
+                >
+                  {conflictMetric.text}
+                </span>
+              </div>
+            ) : null}
           </div>
         </div>
-
-        {plan && plan.days.length > 1 ? (
-          <section className="schedule-day-picker" aria-label="ימי התוכנית">
-            <div className="schedule-day-picker-head">
-              <h2>ימי התוכנית</h2>
-              <span>בחרו יום לעריכה ופירוט · הסטטוס לפי נתוני התוכנית</span>
-            </div>
-            <div className="day-card-grid" role="tablist">
-              {plan.days.map((d, idx) => {
-                const active = schedule?.id === d.id;
-                const label = new Date(d.window_start).toLocaleDateString(
-                  "he-IL",
-                  { weekday: "short", day: "numeric", month: "numeric" }
-                );
-                const hasMissions = d.mission_count > 0;
-                const hasAssignments = d.assignment_count > 0;
-                return (
-                  <button
-                    key={d.id}
-                    type="button"
-                    role="tab"
-                    aria-selected={active}
-                    className={`day-pick-card${active ? " active" : ""}${
-                      d.status === "published" ? " published" : ""
-                    }`}
-                    disabled={busy}
-                    onClick={() => void selectPlanDay(d.id)}
-                  >
-                    <div className="day-pick-card-top">
-                      <span className="day-pick-idx">יום {idx + 1}</span>
-                      {d.status === "published" ? (
-                        <span className="day-pick-badge ok">מפורסם</span>
-                      ) : !hasMissions ? (
-                        <span className="day-pick-badge muted">ללא משימות</span>
-                      ) : !hasAssignments ? (
-                        <span className="day-pick-badge warn">טרם שובץ</span>
-                      ) : (
-                        <span className="day-pick-badge info">טיוטה</span>
-                      )}
-                    </div>
-                    <div className="day-pick-date">{label}</div>
-                    <div className="day-pick-foot">
-                      <span>
-                        {d.mission_count} משימות · {d.assignment_count} שיבוצים
-                      </span>
-                      <span
-                        className={`day-pick-dot ${
-                          d.status === "published"
-                            ? "ok"
-                            : !hasMissions
-                              ? "muted"
-                              : !hasAssignments
-                                ? "warn"
-                                : "info"
-                        }`}
-                        aria-hidden
-                      />
-                    </div>
-                  </button>
-                );
-              })}
-            </div>
-            <p className="schedule-day-picker-note">
-              מספר השיבוצים אינו בהכרח איוש מלא — פירוט מדויק מופיע ביום
-              שנבחר.
-            </p>
-          </section>
-        ) : null}
 
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {result?.status === "success" ? (
@@ -1476,6 +1509,7 @@ export default function HomePage() {
                 return (
                   <article
                     key={m.id}
+                    id={`mission-card-${m.id}`}
                     className={`mission-card${understaffed ? " understaffed" : ""}`}
                   >
                     <header>
@@ -1491,11 +1525,13 @@ export default function HomePage() {
                             }}
                           />
                           {m.name}
+                          {understaffed ? (
+                            <span className="mission-gap-pill">חסר איוש</span>
+                          ) : null}
                         </h3>
                         <div className={`time${understaffed ? " understaffed-label" : ""}`}>
                           קושי {m.difficulty_weight}/5 · {assigned.length}/
                           {m.personnel_count} אנשים
-                          {understaffed ? " · חסר איוש" : ""}
                         </div>
                       </div>
                       <div className="time">

@@ -635,6 +635,8 @@ export type ScheduleDaySummary = {
   published_at?: string | null;
   assignment_count: number;
   mission_count: number;
+  staffing_needed?: number;
+  staffing_filled?: number;
 };
 
 export type SchedulePlan = {

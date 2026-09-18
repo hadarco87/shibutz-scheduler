@@ -587,6 +587,8 @@ class ScheduleDayOut(ORMModel):
     published_at: Optional[datetime] = None
     assignment_count: int = 0
     mission_count: int = 0
+    staffing_needed: int = 0
+    staffing_filled: int = 0
 
 
 class SchedulePlanOut(ORMModel):

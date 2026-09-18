@@ -1116,12 +1116,58 @@ textarea {
 }
 
 .mission-card.understaffed {
-  border-color: rgba(155, 44, 44, 0.35);
+  border-color: rgba(139, 46, 46, 0.55);
+  border-width: 2px;
+  background: rgba(139, 46, 46, 0.06);
+  box-shadow: 0 0 0 1px rgba(139, 46, 46, 0.12);
 }
 
 .mission-card .time.understaffed-label {
   color: #9b2c2c;
   white-space: normal;
+  font-weight: 650;
+}
+
+.mission-gap-pill {
+  display: inline-block;
+  margin-inline-start: 0.45rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 6px;
+  font-size: 0.72rem;
+  font-weight: 700;
+  vertical-align: middle;
+  background: rgba(139, 46, 46, 0.14);
+  color: var(--danger);
+}
+
+.metric-card-danger {
+  border-color: rgba(139, 46, 46, 0.35);
+  background: rgba(139, 46, 46, 0.04);
+}
+
+.metric-foot-danger {
+  color: var(--danger);
+  font-weight: 700;
+}
+
+.day-pick-card.understaffed {
+  border-color: rgba(139, 46, 46, 0.55);
+  background: rgba(139, 46, 46, 0.07);
+}
+
+.day-pick-card.understaffed.active {
+  border-color: var(--danger);
+  background: rgba(139, 46, 46, 0.1);
+  box-shadow: 0 6px 18px rgba(139, 46, 46, 0.14);
+}
+
+.day-pick-badge.danger {
+  background: rgba(139, 46, 46, 0.14);
+  color: var(--danger);
+}
+
+.day-pick-dot.danger {
+  background: var(--danger);
 }
 
 .people-chips {
