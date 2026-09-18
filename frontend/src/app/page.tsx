@@ -1293,44 +1293,62 @@ export default function HomePage() {
             ) : null}
           </div>
 
-          <div
-            className={`metric-card${staffing.shortfall > 0 ? " metric-card-danger" : ""}`}
-          >
-            <div className="metric-card-head">
-              <span className="metric-label">משימות ואיוש</span>
-              <span
-                className={`metric-icon ${
-                  staffing.shortfall > 0
-                    ? "metric-icon-danger"
-                    : "metric-icon-info"
-                }`}
-                aria-hidden
-              >
-                ▤
-              </span>
-            </div>
-            <div className="metric-value-row">
-              <span className="metric-value">{missionCount}</span>
-              <span className="metric-unit">משימות בחלון</span>
-            </div>
-            <div className="metric-foot">
-              <span>
-                מקומות איוש:{" "}
-                <strong>
-                  {staffing.filled}/{staffing.needed || 0}
-                </strong>
-              </span>
-              {staffing.shortfall > 0 ? (
-                <span className="metric-foot-danger">
-                  חסר {staffing.shortfall}
+          {staffing.shortfall > 0 ? (
+            <button
+              type="button"
+              className="metric-card metric-card-button metric-card-danger"
+              onClick={() => setScrollToUnderstaffed(true)}
+              title="מעבר למשמרת עם חוסר איוש"
+            >
+              <div className="metric-card-head">
+                <span className="metric-label">משימות ואיוש</span>
+                <span className="metric-icon metric-icon-danger" aria-hidden>
+                  ▤
                 </span>
-              ) : staffing.needed > 0 ? (
-                <span className="metric-foot-ok">מאויש במלואו</span>
-              ) : (
-                <span className="metric-foot-muted">אין משימות עדיין</span>
-              )}
+              </div>
+              <div className="metric-value-row">
+                <span className="metric-value">{missionCount}</span>
+                <span className="metric-unit">משימות בחלון</span>
+              </div>
+              <div className="metric-foot">
+                <span>
+                  מקומות איוש:{" "}
+                  <strong>
+                    {staffing.filled}/{staffing.needed || 0}
+                  </strong>
+                </span>
+                <span className="metric-foot-danger">
+                  חסר {staffing.shortfall} · לחצו למעבר
+                </span>
+              </div>
+            </button>
+          ) : (
+            <div className="metric-card">
+              <div className="metric-card-head">
+                <span className="metric-label">משימות ואיוש</span>
+                <span className="metric-icon metric-icon-info" aria-hidden>
+                  ▤
+                </span>
+              </div>
+              <div className="metric-value-row">
+                <span className="metric-value">{missionCount}</span>
+                <span className="metric-unit">משימות בחלון</span>
+              </div>
+              <div className="metric-foot">
+                <span>
+                  מקומות איוש:{" "}
+                  <strong>
+                    {staffing.filled}/{staffing.needed || 0}
+                  </strong>
+                </span>
+                {staffing.needed > 0 ? (
+                  <span className="metric-foot-ok">מאויש במלואו</span>
+                ) : (
+                  <span className="metric-foot-muted">אין משימות עדיין</span>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="metric-card">
             <div className="metric-card-head">
