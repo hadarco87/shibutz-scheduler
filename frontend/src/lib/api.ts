@@ -116,6 +116,17 @@ export const api = {
     ),
   revokeCompanyInvite: (token: string, id: number) =>
     request(`/company/invites/${id}`, { method: "DELETE" }, token),
+  wipeCompanyData: (
+    token: string,
+    body: { operational: boolean; catalog: boolean; people: boolean }
+  ) =>
+    request<{
+      ok: boolean;
+      operational: boolean;
+      catalog: boolean;
+      people: boolean;
+      deleted: Record<string, unknown>;
+    }>("/company/wipe", { method: "POST", body: JSON.stringify(body) }, token),
   people: (token: string) => request<Person[]>("/people", {}, token),
   previewPeopleImport: (token: string, file: File, sheet?: string) => {
     const form = new FormData();

@@ -131,6 +131,11 @@ export default function HomePage() {
   const [replaceMode, setReplaceMode] = useState<"matching" | "all">("matching");
   const [replaceLoading, setReplaceLoading] = useState(false);
   const [rosterOpen, setRosterOpen] = useState(false);
+  const [wipeOpen, setWipeOpen] = useState(false);
+  const [wipeOperational, setWipeOperational] = useState(false);
+  const [wipeCatalog, setWipeCatalog] = useState(false);
+  const [wipePeople, setWipePeople] = useState(false);
+  const [wipeBusy, setWipeBusy] = useState(false);
 
   async function loadDaySchedule(
     token: string,
@@ -776,6 +781,61 @@ export default function HomePage() {
     schedule.assignments.length > 0 &&
     (!plan || plan.days_count === 1);
 
+  function openWipeDialog() {
+    setWipeOperational(false);
+    setWipeCatalog(false);
+    setWipePeople(false);
+    setWipeOpen(true);
+  }
+
+  async function submitWipe() {
+    if (!token) return;
+    if (!wipeOperational && !wipeCatalog && !wipePeople) {
+      setError("יש לבחור לפחות שכבת מחיקה אחת");
+      return;
+    }
+
+    const layers: string[] = [];
+    if (wipeOperational) layers.push("נתוני שיבוץ תפעוליים");
+    if (wipeCatalog) {
+      layers.push(
+        wipePeople
+          ? "הגדרות וקטלוג (כולל תפקידים)"
+          : "הגדרות וקטלוג (תפקידים נשמרים עם כוח האדם)"
+      );
+    }
+    if (wipePeople) layers.push("כוח אדם (לא משתמשי מערכת)");
+
+    const ok = await confirm({
+      title: "אישור מחיקה סופי",
+      message: `למחוק לצמיתות מהמסד?\n\n${layers.map((l) => `• ${l}`).join("\n")}\n\nפעולה זו אינה ניתנת לשחזור.`,
+      confirmLabel: "מחק לצמיתות",
+      tone: "danger",
+    });
+    if (!ok) return;
+
+    setWipeBusy(true);
+    setError("");
+    startBusy("מוחק נתונים…");
+    try {
+      await api.wipeCompanyData(token, {
+        operational: wipeOperational,
+        catalog: wipeCatalog,
+        people: wipePeople,
+      });
+      setWipeOpen(false);
+      setSchedule(null);
+      setPlan(null);
+      setResult(null);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "מחיקת הנתונים נכשלה");
+    } finally {
+      setWipeBusy(false);
+      stopBusy();
+    }
+  }
+
   return (
     <AppShell>
       {busy ? (
@@ -1009,6 +1069,16 @@ export default function HomePage() {
                   שתף בוואטסאפ
                 </button>
               </>
+            ) : null}
+            {user?.role === "commander" ? (
+              <button
+                className="btn btn-danger-ghost"
+                type="button"
+                disabled={busy || wipeBusy}
+                onClick={openWipeDialog}
+              >
+                מחיקת מידע
+              </button>
             ) : null}
           </div>
         </div>
@@ -1485,6 +1555,98 @@ export default function HomePage() {
                 onClick={() => void sharePublishedPdf()}
               >
                 וואטסאפ
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {wipeOpen ? (
+        <div
+          className="app-dialog-backdrop"
+          role="presentation"
+          onClick={() => !wipeBusy && setWipeOpen(false)}
+        >
+          <div
+            className="app-dialog app-dialog-danger wipe-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="wipe-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="wipe-dialog-title" className="app-dialog-title">
+              מחיקת מידע
+            </h2>
+            <p className="app-dialog-message">
+              המחיקה מוחקת נתונים לצמיתות מטבלאות המסד. משתמשי המערכת (חשבונות
+              התחברות) לא יימחקו. בחרו אילו שכבות למחוק — כברירת מחדל אף אחת לא
+              מסומנת.
+            </p>
+            <div className="wipe-options">
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={wipeOperational}
+                  disabled={wipeBusy}
+                  onChange={(e) => setWipeOperational(e.target.checked)}
+                />
+                <span>
+                  <strong>נתוני שיבוץ תפעוליים</strong>
+                  <span className="wipe-option-hint">
+                    תוכניות, ימי שיבוץ, משימות, שיבוצים, עומס, אפטרים, חופשות
+                    והגבלות
+                  </span>
+                </span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={wipeCatalog}
+                  disabled={wipeBusy}
+                  onChange={(e) => setWipeCatalog(e.target.checked)}
+                />
+                <span>
+                  <strong>הגדרות וקטלוג</strong>
+                  <span className="wipe-option-hint">
+                    סוגי משימות, כללי שיבוץ, קנים והכשרות. כולל גם ניקוי נתוני
+                    שיבוץ תלויים. תפקידים נמחקים רק יחד עם כוח אדם.
+                  </span>
+                </span>
+              </label>
+              <label className="checkbox-row">
+                <input
+                  type="checkbox"
+                  checked={wipePeople}
+                  disabled={wipeBusy}
+                  onChange={(e) => setWipePeople(e.target.checked)}
+                />
+                <span>
+                  <strong>כוח אדם</strong>
+                  <span className="wipe-option-hint">
+                    רשימת החיילים בלבד — לא משתמשי המערכת
+                  </span>
+                </span>
+              </label>
+            </div>
+            <div className="app-dialog-actions">
+              <button
+                className="btn btn-ghost"
+                type="button"
+                disabled={wipeBusy}
+                onClick={() => setWipeOpen(false)}
+              >
+                ביטול
+              </button>
+              <button
+                className="btn btn-danger"
+                type="button"
+                disabled={
+                  wipeBusy ||
+                  (!wipeOperational && !wipeCatalog && !wipePeople)
+                }
+                onClick={() => void submitWipe()}
+              >
+                {wipeBusy ? "מוחק…" : "מחק"}
               </button>
             </div>
           </div>

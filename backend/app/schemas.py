@@ -711,6 +711,20 @@ class HistorySummaryOut(BaseModel):
     published_schedules: int = 0
 
 
+class CompanyWipeIn(BaseModel):
+    operational: bool = False
+    catalog: bool = False
+    people: bool = False
+
+
+class CompanyWipeOut(BaseModel):
+    ok: bool = True
+    operational: bool
+    catalog: bool
+    people: bool
+    deleted: dict
+
+
 # Kanim (minimum outpost staffing) + After
 class KanimRuleCreate(BaseModel):
     kind: KanimRuleKind

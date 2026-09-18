@@ -117,9 +117,12 @@ from app.schemas import (
     HistorySummaryOut,
     HistoryPersonHoursOut,
     WorkloadPersonOut,
+    CompanyWipeIn,
+    CompanyWipeOut,
 )
 from app.security import authenticate_user, create_access_token, get_password_hash
 from app.services.bootstrap import bootstrap_company
+from app.services.company_wipe import wipe_company_data
 from app.services.excel_import import apply_people_import, parse_people_workbook
 from app.services.after import (
     after_count_map,
@@ -839,6 +842,41 @@ def revoke_company_invite(
     invite.revoked_at = datetime.utcnow()
     db.commit()
     return {"ok": True}
+
+
+@router.post("/company/wipe", response_model=CompanyWipeOut)
+def wipe_company(
+    body: CompanyWipeIn,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    """Destructively wipe selected company data layers. Never deletes system users."""
+    if not (body.operational or body.catalog or body.people):
+        raise HTTPException(400, "יש לבחור לפחות שכבת מחיקה אחת")
+
+    try:
+        result = wipe_company_data(
+            db,
+            user.company_id,
+            operational=body.operational,
+            catalog=body.catalog,
+            people=body.people,
+        )
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(
+            409,
+            "המחיקה נכשלה בגלל תלויות במסד הנתונים. נסו שוב או בחרו שכבות נוספות.",
+        )
+
+    return CompanyWipeOut(
+        ok=True,
+        operational=result.operational,
+        catalog=result.catalog,
+        people=result.people,
+        deleted=result.deleted,
+    )
 
 
 # ---------- roles ----------
