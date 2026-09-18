@@ -367,6 +367,14 @@ textarea {
   color: var(--ink-soft);
 }
 
+.after-day-picker {
+  margin-bottom: 0.25rem;
+}
+
+.after-stats-footer {
+  margin-top: 1rem;
+}
+
 .day-pick-badge.info {
   background: rgba(63, 90, 50, 0.12);
   color: var(--olive-deep);
