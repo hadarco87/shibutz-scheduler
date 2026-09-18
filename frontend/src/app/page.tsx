@@ -202,6 +202,78 @@ export default function HomePage() {
   const missionCount = schedule?.missions.length || 0;
   const conflictCount = result?.conflicts.length || 0;
 
+  const staffing = useMemo(() => {
+    if (!schedule) return { needed: 0, filled: 0, shortfall: 0 };
+    let needed = 0;
+    let filled = 0;
+    for (const m of schedule.missions) {
+      needed += m.personnel_count;
+      const assigned = schedule.assignments.filter((a) => a.mission_id === m.id)
+        .length;
+      filled += Math.min(m.personnel_count, assigned);
+    }
+    return { needed, filled, shortfall: Math.max(0, needed - filled) };
+  }, [schedule]);
+
+  const assignedPeopleCount = useMemo(() => {
+    if (!schedule) return 0;
+    return new Set(schedule.assignments.map((a) => a.person_id)).size;
+  }, [schedule]);
+
+  const scheduleStatusLabel =
+    schedule?.status === "published" || plan?.status === "published"
+      ? "published"
+      : schedule
+        ? "draft"
+        : "empty";
+
+  const warningCount = result?.warnings?.length || 0;
+  const hasRunResult = result != null;
+
+  const conflictMetric = useMemo(() => {
+    if (conflictCount > 0) {
+      return {
+        tone: "warn" as const,
+        text: "דורש טיפול לפני פרסום",
+      };
+    }
+    if (staffing.shortfall > 0) {
+      return {
+        tone: "warn" as const,
+        text: `חסרים ${staffing.shortfall} מקומות איוש`,
+      };
+    }
+    if (hasRunResult) {
+      return {
+        tone: "ok" as const,
+        text:
+          warningCount > 0
+            ? `ללא קונפליקטים · ${warningCount} אזהרות`
+            : "הריצה האחרונה ללא קונפליקטים",
+      };
+    }
+    return {
+      tone: "muted" as const,
+      text: schedule ? "הריצו «שבץ» לבדיקת חוקים" : "אין חלון פעיל",
+    };
+  }, [
+    conflictCount,
+    staffing.shortfall,
+    hasRunResult,
+    warningCount,
+    schedule,
+  ]);
+
+  const nextScopeHint = useMemo(() => {
+    if (planStartKind === "today") {
+      return "השיבוץ הבא יופעל על היום · יממה אחת";
+    }
+    if (planDaysCount === 1) {
+      return "השיבוץ הבא יופעל על מחר · יממה אחת";
+    }
+    return `השיבוץ הבא יופעל ממחר · ${planDaysCount} ימים`;
+  }, [planStartKind, planDaysCount]);
+
   const rosterByRole = useMemo(() => {
     const counts = new Map<string, number>();
     for (const p of people) {
@@ -734,25 +806,6 @@ export default function HomePage() {
     return { start, end };
   }, [schedule]);
 
-  const windowKind = useMemo(() => {
-    if (!schedule) return null as null | "today" | "tomorrow" | "other";
-    const start = new Date(schedule.window_start);
-    const today = calendarDayWindow("today").start;
-    const tomorrow = calendarDayWindow("tomorrow").start;
-    if (sameCalendarDay(start, today)) return "today";
-    if (sameCalendarDay(start, tomorrow)) return "tomorrow";
-    return "other";
-  }, [schedule]);
-
-  const todayTitle = useMemo(
-    () => formatDayTitle(calendarDayWindow("today").start),
-    []
-  );
-  const tomorrowTitle = useMemo(
-    () => formatDayTitle(calendarDayWindow("tomorrow").start),
-    []
-  );
-
   const planRangeLabel = useMemo(() => {
     if (!plan || !plan.days.length) return null;
     const first = new Date(plan.days[0].window_start);
@@ -852,65 +905,141 @@ export default function HomePage() {
           </div>
         </div>
       ) : null}
-      <section className="panel">
-        <div className="hero-actions">
-          <div>
-            <h1
-              style={{
-                margin: "0 0 0.35rem",
-                fontSize: "1.7rem",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.55rem",
-                flexWrap: "wrap",
-              }}
-            >
-              מסך שיבוץ
-              <SchedulingHowItWorksButton />
-            </h1>
-            <p style={{ margin: "0 0 0.35rem", color: "var(--ink-soft)" }}>
-              <span className="schedule-day-badge muted">היום</span>
-              {todayTitle}
-            </p>
-            <p style={{ margin: 0, fontSize: "1.05rem" }}>
-              {windowKind === "today" ? (
-                <>
-                  <span className="schedule-day-badge today">שיבוץ להיום</span>
-                  {schedule
-                    ? `${formatDayTitle(schedule.window_start)} · 00:00–24:00`
-                    : `${todayTitle} · 00:00–24:00`}
-                </>
-              ) : plan && plan.days_count > 1 ? (
-                <>
-                  <span className="schedule-day-badge">תוכנית רב־יומית</span>
-                  {planRangeLabel} · {plan.days_count} ימים
-                </>
-              ) : (
-                <>
-                  <span className="schedule-day-badge">שיבוץ למחר</span>
-                  {schedule && windowKind === "tomorrow"
-                    ? `${formatDayTitle(schedule.window_start)} · 00:00–24:00`
-                    : `${tomorrowTitle} · 00:00–24:00`}
-                </>
-              )}
-            </p>
-
-            <div className="plan-range-bar">
-              <label className="plan-range-field">
-                <span>התחלה</span>
-                <select
-                  value={planStartKind}
-                  disabled={busy || planDaysCount > 1}
-                  onChange={(e) =>
-                    setPlanStartKind(e.target.value as "today" | "tomorrow")
-                  }
+      <section className="panel schedule-board">
+        <header className="schedule-topbar">
+          <div className="schedule-topbar-start">
+            <h1 className="schedule-title">שיבוץ</h1>
+            {scheduleStatusLabel === "published" ? (
+              <span className="schedule-status-pill published">
+                <span className="schedule-status-dot" aria-hidden />
+                מפורסם
+              </span>
+            ) : scheduleStatusLabel === "draft" ? (
+              <span className="schedule-status-pill draft">
+                <span className="schedule-status-dot pulse" aria-hidden />
+                טיוטה — טרם פורסם
+              </span>
+            ) : (
+              <span className="schedule-status-pill empty">אין חלון פעיל</span>
+            )}
+            <SchedulingHowItWorksButton />
+          </div>
+          <div className="schedule-topbar-end">
+            {user?.role === "commander" ? (
+              <button
+                className="btn-wipe-quiet"
+                type="button"
+                disabled={busy || wipeBusy}
+                onClick={openWipeDialog}
+                title="מחיקת שכבות מידע מהמסד (לא משתמשי מערכת)"
+              >
+                מחיקת מידע
+              </button>
+            ) : null}
+            {(canPublishPlan || canPublishSingle) &&
+            schedule?.status === "draft" ? (
+              <button
+                className="btn btn-publish"
+                type="button"
+                disabled={busy || !(canPublishPlan || canPublishSingle)}
+                onClick={() => void onPublish()}
+              >
+                {plan && plan.days_count > 1
+                  ? "פרסם את כל התקופה"
+                  : "פרסם שיבוץ"}
+              </button>
+            ) : null}
+            {schedule?.status === "published" || plan?.status === "published" ? (
+              <>
+                <button
+                  className="btn btn-primary"
+                  type="button"
+                  disabled={pdfBusy || !schedule}
+                  onClick={() => void buildAndDownloadPdf()}
                 >
-                  <option value="tomorrow">מחר</option>
-                  <option value="today">היום</option>
-                </select>
-              </label>
-              <label className="plan-range-field">
-                <span>מספר ימים</span>
+                  {pdfBusy ? "מכין PDF…" : "הורד PDF"}
+                </button>
+                {plan && plan.days.length > 1 ? (
+                  <button
+                    className="btn btn-ghost"
+                    type="button"
+                    disabled={pdfBusy}
+                    onClick={() => void buildAndDownloadAllPlanPdfs()}
+                  >
+                    PDF לכל הימים
+                  </button>
+                ) : null}
+                <button
+                  className="btn btn-accent"
+                  type="button"
+                  disabled={pdfBusy || !schedule}
+                  onClick={() => void sharePublishedPdf()}
+                >
+                  שתף בוואטסאפ
+                </button>
+              </>
+            ) : null}
+          </div>
+        </header>
+
+        <div className="schedule-range-card">
+          <div className="schedule-range-meta">
+            <div className="schedule-range-icon" aria-hidden>
+              ▦
+            </div>
+            <div>
+              <span className="schedule-range-kicker">
+                {schedule ? "חלון מוצג כעת" : "אין חלון מוצג"}
+              </span>
+              <div className="schedule-range-title-row">
+                <strong>
+                  {plan && plan.days.length > 1
+                    ? planRangeLabel
+                    : schedule
+                      ? formatDayTitle(schedule.window_start)
+                      : "בחרו טווח והריצו שיבוץ"}
+                </strong>
+                {schedule || (plan && plan.days.length > 1) ? (
+                  <span className="schedule-range-chip">
+                    {plan && plan.days.length > 1
+                      ? `${plan.days_count} ימים`
+                      : "יום אחד"}
+                  </span>
+                ) : null}
+              </div>
+            </div>
+          </div>
+
+          <div className="schedule-range-controls-wrap">
+            <div className="schedule-range-controls">
+              <div
+                className="segmented"
+                role="group"
+                aria-label="יעד לשיבוץ הבא"
+              >
+                <button
+                  type="button"
+                  className={`segmented-btn${planStartKind === "tomorrow" ? " active" : ""}`}
+                  disabled={busy}
+                  onClick={() => setPlanStartKind("tomorrow")}
+                >
+                  מחר
+                </button>
+                <button
+                  type="button"
+                  className={`segmented-btn${planStartKind === "today" ? " active" : ""}`}
+                  disabled={busy || planDaysCount > 1}
+                  onClick={() => {
+                    setPlanStartKind("today");
+                    setPlanDaysCount(1);
+                  }}
+                >
+                  היום
+                </button>
+              </div>
+
+              <label className="schedule-days-field">
+                <span>ימים</span>
                 <select
                   value={planDaysCount}
                   disabled={busy || planStartKind === "today"}
@@ -927,174 +1056,80 @@ export default function HomePage() {
                   ))}
                 </select>
               </label>
-              <span className="plan-range-hint">
-                {planStartKind === "today"
-                  ? "קיצור ליום אחד — היום"
-                  : planDaysCount === 1
-                    ? "יממה אחת — מחר"
-                    : `מחר + ${planDaysCount - 1} ימים נוספים (עד 7)`}
-              </span>
+
+              <button
+                className="btn btn-primary schedule-run-btn"
+                type="button"
+                disabled={busy}
+                onClick={() => void onGeneratePlan("all_draft")}
+              >
+                {busy && busyMessage.includes("משבץ") ? (
+                  <span className="btn-busy-label">
+                    <span
+                      className="busy-spinner busy-spinner-inline"
+                      aria-hidden
+                    />
+                    משבץ…
+                  </span>
+                ) : (
+                  generateButtonLabel()
+                )}
+              </button>
             </div>
-
-            {plan && plan.days.length > 1 ? (
-              <div className="plan-day-tabs" role="tablist" aria-label="ימי התוכנית">
-                {plan.days.map((d, idx) => {
-                  const active = schedule?.id === d.id;
-                  const label = new Date(d.window_start).toLocaleDateString(
-                    "he-IL",
-                    { weekday: "short", day: "numeric", month: "numeric" }
-                  );
-                  return (
-                    <button
-                      key={d.id}
-                      type="button"
-                      role="tab"
-                      aria-selected={active}
-                      className={`plan-day-tab${active ? " active" : ""}${
-                        d.status === "published" ? " published" : ""
-                      }`}
-                      disabled={busy}
-                      onClick={() => void selectPlanDay(d.id)}
-                    >
-                      <span className="plan-day-tab-idx">יום {idx + 1}</span>
-                      <span className="plan-day-tab-date">{label}</span>
-                      {d.status === "published" ? (
-                        <span className="plan-day-tab-status">מפורסם</span>
-                      ) : null}
-                    </button>
-                  );
-                })}
-              </div>
-            ) : null}
-
-            <p className="schedule-day-alt">
-              {windowKind === "today" ? (
+            <p className="schedule-range-hint-line">{nextScopeHint}</p>
+            {planDaysCount === 1 ? (
+              <p className="schedule-range-quick">
                 <button
                   type="button"
                   className="text-link"
                   disabled={busy}
-                  onClick={() => {
-                    setPlanStartKind("tomorrow");
-                    setPlanDaysCount(1);
-                    void createWindow("tomorrow");
-                  }}
+                  onClick={() =>
+                    void createWindow(
+                      planStartKind === "today" ? "today" : "tomorrow"
+                    )
+                  }
                 >
-                  חזרה לשיבוץ מחר (ברירת מחדל)
+                  {planStartKind === "today"
+                    ? "טען/צור חלון להיום בלי לשבץ עדיין"
+                    : "טען/צור חלון למחר בלי לשבץ עדיין"}
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  className="text-link"
-                  disabled={busy || planDaysCount > 1}
-                  onClick={() => {
-                    setPlanStartKind("today");
-                    setPlanDaysCount(1);
-                    void createWindow("today");
-                  }}
-                >
-                  צריך שיבוץ להיום במקום?
-                </button>
-              )}
-            </p>
-          </div>
-          <div className="hero-primary-actions">
-            <button
-              className="btn btn-primary"
-              type="button"
-              disabled={busy}
-              onClick={() => void onGeneratePlan("all_draft")}
-            >
-              {busy && busyMessage.includes("משבץ") ? (
-                <span className="btn-busy-label">
-                  <span className="busy-spinner busy-spinner-inline" aria-hidden />
-                  משבץ…
-                </span>
-              ) : (
-                generateButtonLabel()
-              )}
-            </button>
-            {plan &&
-            plan.status === "draft" &&
-            schedule &&
-            schedule.status === "draft" &&
-            plan.days_count > 1 ? (
-              <button
-                className="btn btn-ghost"
-                type="button"
-                disabled={busy}
-                onClick={() => void onGenerateDayOnly()}
-              >
-                שבץ מחדש יום זה
-              </button>
-            ) : null}
-            {(canPublishPlan || canPublishSingle) &&
-            schedule?.status === "draft" ? (
-              <button
-                className="btn btn-accent"
-                type="button"
-                disabled={busy || !(canPublishPlan || canPublishSingle)}
-                onClick={() => void onPublish()}
-              >
-                {plan && plan.days_count > 1
-                  ? "מאושר לפרסום — כל התקופה"
-                  : "מאושר לפרסום"}
-              </button>
-            ) : null}
-            {schedule?.status === "published" || plan?.status === "published" ? (
-              <>
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  disabled={pdfBusy || !schedule}
-                  onClick={() => void buildAndDownloadPdf()}
-                >
-                  {pdfBusy ? "מכין PDF…" : "הורד PDF ליום זה"}
-                </button>
-                {plan && plan.days.length > 1 ? (
-                  <button
-                    className="btn btn-ghost"
-                    type="button"
-                    disabled={pdfBusy}
-                    onClick={() => void buildAndDownloadAllPlanPdfs()}
-                  >
-                    הורד PDF לכל הימים
-                  </button>
-                ) : null}
-                <button
-                  className="btn btn-accent"
-                  type="button"
-                  disabled={pdfBusy || !schedule}
-                  onClick={() => void sharePublishedPdf()}
-                >
-                  שתף בוואטסאפ
-                </button>
-              </>
-            ) : null}
-            {user?.role === "commander" ? (
-              <button
-                className="btn btn-danger-ghost"
-                type="button"
-                disabled={busy || wipeBusy}
-                onClick={openWipeDialog}
-              >
-                מחיקת מידע
-              </button>
+              </p>
             ) : null}
           </div>
         </div>
 
-        <div className="stats" style={{ marginTop: "1rem" }}>
+        <div className="schedule-metrics">
           <div className="stat-stack">
             <button
               type="button"
-              className={`stat stat-button ${rosterOpen ? "open" : ""}`}
+              className={`metric-card metric-card-button ${rosterOpen ? "open" : ""}`}
               onClick={() => setRosterOpen((v) => !v)}
               aria-expanded={rosterOpen}
             >
-              <span className="label">
-                כוח אדם זמין {rosterOpen ? "▴" : "▾"}
-              </span>
-              <span className="value">{availableCount}</span>
+              <div className="metric-card-head">
+                <span className="metric-label">כוח אדם זמין</span>
+                <span className="metric-icon metric-icon-ok" aria-hidden>
+                  ◇
+                </span>
+              </div>
+              <div className="metric-value-row">
+                <span className="metric-value">{availableCount}</span>
+                <span className="metric-unit">
+                  חיילים פעילים {rosterOpen ? "▴" : "▾"}
+                </span>
+              </div>
+              <div className="metric-foot">
+                <span>
+                  משובצים ביום זה: <strong>{assignedPeopleCount}</strong>
+                </span>
+                <span
+                  className={
+                    availableCount > 0 ? "metric-foot-ok" : "metric-foot-muted"
+                  }
+                >
+                  {availableCount > 0 ? "במאגר השיבוץ" : "אין כוח אדם"}
+                </span>
+              </div>
             </button>
             {rosterOpen ? (
               <div className="roster-breakdown">
@@ -1116,23 +1151,139 @@ export default function HomePage() {
               </div>
             ) : null}
           </div>
-          <div className="stat">
-            <span className="label">משימות</span>
-            <span className="value">{missionCount}</span>
+
+          <div className="metric-card">
+            <div className="metric-card-head">
+              <span className="metric-label">משימות ואיוש</span>
+              <span className="metric-icon metric-icon-info" aria-hidden>
+                ▤
+              </span>
+            </div>
+            <div className="metric-value-row">
+              <span className="metric-value">{missionCount}</span>
+              <span className="metric-unit">משימות בחלון</span>
+            </div>
+            <div className="metric-foot">
+              <span>
+                מקומות איוש:{" "}
+                <strong>
+                  {staffing.filled}/{staffing.needed || 0}
+                </strong>
+              </span>
+              {staffing.shortfall > 0 ? (
+                <span className="metric-foot-warn">
+                  חסר {staffing.shortfall}
+                </span>
+              ) : staffing.needed > 0 ? (
+                <span className="metric-foot-ok">מאויש במלואו</span>
+              ) : (
+                <span className="metric-foot-muted">אין משימות עדיין</span>
+              )}
+            </div>
           </div>
-          <div className="stat">
-            <span className="label">קונפליקטים</span>
-            <span className="value">{conflictCount}</span>
+
+          <div className="metric-card">
+            <div className="metric-card-head">
+              <span className="metric-label">קונפליקטים</span>
+              <span
+                className={`metric-icon ${
+                  conflictCount > 0 || staffing.shortfall > 0
+                    ? "metric-icon-danger"
+                    : hasRunResult
+                      ? "metric-icon-ok"
+                      : "metric-icon-info"
+                }`}
+                aria-hidden
+              >
+                !
+              </span>
+            </div>
+            <div className="metric-value-row">
+              <span className="metric-value">{conflictCount}</span>
+              <span className="metric-unit">מריצת השיבוץ</span>
+            </div>
+            <div className="metric-foot">
+              <span
+                className={
+                  conflictMetric.tone === "ok"
+                    ? "metric-foot-ok"
+                    : conflictMetric.tone === "warn"
+                      ? "metric-foot-warn"
+                      : "metric-foot-muted"
+                }
+              >
+                {conflictMetric.text}
+              </span>
+            </div>
           </div>
         </div>
 
-        {schedule ? (
-          <div style={{ marginTop: "0.85rem", color: "var(--ink-soft)" }}>
-            סטטוס:{" "}
-            <strong>
-              {schedule.status === "published" ? "מפורסם" : "טיוטה"}
-            </strong>
-          </div>
+        {plan && plan.days.length > 1 ? (
+          <section className="schedule-day-picker" aria-label="ימי התוכנית">
+            <div className="schedule-day-picker-head">
+              <h2>ימי התוכנית</h2>
+              <span>בחרו יום לעריכה ופירוט · הסטטוס לפי נתוני התוכנית</span>
+            </div>
+            <div className="day-card-grid" role="tablist">
+              {plan.days.map((d, idx) => {
+                const active = schedule?.id === d.id;
+                const label = new Date(d.window_start).toLocaleDateString(
+                  "he-IL",
+                  { weekday: "short", day: "numeric", month: "numeric" }
+                );
+                const hasMissions = d.mission_count > 0;
+                const hasAssignments = d.assignment_count > 0;
+                return (
+                  <button
+                    key={d.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    className={`day-pick-card${active ? " active" : ""}${
+                      d.status === "published" ? " published" : ""
+                    }`}
+                    disabled={busy}
+                    onClick={() => void selectPlanDay(d.id)}
+                  >
+                    <div className="day-pick-card-top">
+                      <span className="day-pick-idx">יום {idx + 1}</span>
+                      {d.status === "published" ? (
+                        <span className="day-pick-badge ok">מפורסם</span>
+                      ) : !hasMissions ? (
+                        <span className="day-pick-badge muted">ללא משימות</span>
+                      ) : !hasAssignments ? (
+                        <span className="day-pick-badge warn">טרם שובץ</span>
+                      ) : (
+                        <span className="day-pick-badge info">טיוטה</span>
+                      )}
+                    </div>
+                    <div className="day-pick-date">{label}</div>
+                    <div className="day-pick-foot">
+                      <span>
+                        {d.mission_count} משימות · {d.assignment_count} שיבוצים
+                      </span>
+                      <span
+                        className={`day-pick-dot ${
+                          d.status === "published"
+                            ? "ok"
+                            : !hasMissions
+                              ? "muted"
+                              : !hasAssignments
+                                ? "warn"
+                                : "info"
+                        }`}
+                        aria-hidden
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <p className="schedule-day-picker-note">
+              מספר השיבוצים אינו בהכרח איוש מלא — פירוט מדויק מופיע ביום
+              שנבחר.
+            </p>
+          </section>
         ) : null}
 
         {error ? <div className="alert alert-danger">{error}</div> : null}
@@ -1157,12 +1308,34 @@ export default function HomePage() {
       </section>
 
       {schedule ? (
-        <section className="panel">
-          <h2 style={{ marginTop: 0 }}>משימות בחלון</h2>
-          <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+        <section className="panel schedule-workspace">
+          <div className="schedule-workspace-head">
+            <div>
+              <span className="schedule-workspace-kicker">יום פעיל לעריכה</span>
+              <h2>
+                {formatDayTitle(schedule.window_start)}
+                {schedule.status === "draft" ? " · טיוטה" : " · מפורסם"}
+              </h2>
+            </div>
+            {plan &&
+            plan.status === "draft" &&
+            schedule.status === "draft" &&
+            plan.days_count > 1 ? (
+              <button
+                className="btn btn-ghost btn-small"
+                type="button"
+                disabled={busy}
+                onClick={() => void onGenerateDayOnly()}
+              >
+                שבץ מחדש יום זה בלבד
+              </button>
+            ) : null}
+          </div>
+          <p className="schedule-workspace-lead">
             רוטינית מתווספת לפי שעת התחלה ומשך (מהגדרות). משימה שאינה רוטינית
             מתווספת אוטומטית לפי טווחי השעות שהוגדרו בהגדרות.
           </p>
+          <h3 className="schedule-workspace-sub">משימות בחלון</h3>
           {selectableTypes.length === 0 ? (
             <p style={{ color: "var(--ink-soft)" }}>
               עדיין אין סוגי משימה פעילים. הוסיפו בהגדרות וסמנו «בשיבוץ» — הם
@@ -1205,13 +1378,22 @@ export default function HomePage() {
         </section>
       ) : null}
 
-      <section className="panel">
-        <h2 style={{ marginTop: 0 }}>לוח זמנים</h2>
+      <section className="panel schedule-workspace">
+        <div className="schedule-workspace-head">
+          <div>
+            <span className="schedule-workspace-kicker">לוח זמנים</span>
+            <h2 style={{ margin: 0 }}>
+              {schedule
+                ? `משמרות ומשימות · ${formatDayTitle(schedule.window_start)}`
+                : "משמרות ומשימות"}
+            </h2>
+          </div>
+        </div>
         {!schedule || !dayBounds ? (
           <p style={{ color: "var(--ink-soft)" }}>עדיין אין שיבוץ להצגה.</p>
         ) : (
           <>
-            <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+            <p className="schedule-workspace-lead">
               ציר זמן ליממה · כל צבע = סוג משימה · פסים לפי שעות
             </p>
             <div className="day-timeline" dir="ltr">
@@ -1485,6 +1667,17 @@ export default function HomePage() {
                 );
               })}
             </div>
+            <footer className="schedule-legend">
+              <span>
+                <span className="day-pick-dot ok" aria-hidden /> מאויש במלואו
+              </span>
+              <span>
+                <span className="day-pick-dot warn" aria-hidden /> חסר איוש
+              </span>
+              <span>
+                פרסום מעדכן מדד עומס · שיתוף לצוות נעשה בנפרד אחרי הפרסום
+              </span>
+            </footer>
           </>
         )}
       </section>
