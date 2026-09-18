@@ -1,7 +1,22 @@
 import { jsPDF } from "jspdf";
 import html2canvas from "html2canvas";
 
-export async function elementToPdfBlob(el: HTMLElement): Promise<Blob> {
+function stampDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+function safeCompany(companyName: string) {
+  return (companyName || "pluga").replace(/[^\w\u0590-\u05FF\-]+/g, "_");
+}
+
+type Capture = {
+  imgData: string;
+  imgWidth: number;
+  imgHeight: number;
+  pageHeight: number;
+};
+
+async function captureElementPng(el: HTMLElement): Promise<Capture> {
   const canvas = await html2canvas(el, {
     scale: 2,
     useCORS: true,
@@ -10,27 +25,73 @@ export async function elementToPdfBlob(el: HTMLElement): Promise<Blob> {
     windowWidth: el.scrollWidth,
     windowHeight: el.scrollHeight,
   });
-
-  const imgData = canvas.toDataURL("image/png");
-  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const pageHeight = pdf.internal.pageSize.getHeight();
+  const pdfProbe = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const pageWidth = pdfProbe.internal.pageSize.getWidth();
+  const pageHeight = pdfProbe.internal.pageSize.getHeight();
   const imgWidth = pageWidth;
   const imgHeight = (canvas.height * imgWidth) / canvas.width;
+  return {
+    imgData: canvas.toDataURL("image/png"),
+    imgWidth,
+    imgHeight,
+    pageHeight,
+  };
+}
 
-  let heightLeft = imgHeight;
+function appendElementCaptureToPdf(
+  pdf: jsPDF,
+  capture: Capture,
+  isFirstInDocument: boolean
+) {
+  let heightLeft = capture.imgHeight;
   let position = 0;
 
-  pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-  heightLeft -= pageHeight;
-
-  while (heightLeft > 0.5) {
-    position = heightLeft - imgHeight;
+  if (!isFirstInDocument) {
     pdf.addPage();
-    pdf.addImage(imgData, "PNG", 0, position, imgWidth, imgHeight);
-    heightLeft -= pageHeight;
   }
 
+  pdf.addImage(
+    capture.imgData,
+    "PNG",
+    0,
+    position,
+    capture.imgWidth,
+    capture.imgHeight
+  );
+  heightLeft -= capture.pageHeight;
+
+  while (heightLeft > 0.5) {
+    position = heightLeft - capture.imgHeight;
+    pdf.addPage();
+    pdf.addImage(
+      capture.imgData,
+      "PNG",
+      0,
+      position,
+      capture.imgWidth,
+      capture.imgHeight
+    );
+    heightLeft -= capture.pageHeight;
+  }
+}
+
+export async function elementToPdfBlob(el: HTMLElement): Promise<Blob> {
+  const capture = await captureElementPng(el);
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  appendElementCaptureToPdf(pdf, capture, true);
+  return pdf.output("blob");
+}
+
+/** One PDF: each element becomes a contiguous section (extra pages as needed). */
+export async function elementsToCombinedPdfBlob(
+  els: HTMLElement[]
+): Promise<Blob> {
+  if (!els.length) throw new Error("אין תוכן ל־PDF");
+  const pdf = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  for (let i = 0; i < els.length; i++) {
+    const capture = await captureElementPng(els[i]);
+    appendElementCaptureToPdf(pdf, capture, i === 0);
+  }
   return pdf.output("blob");
 }
 
@@ -82,8 +143,16 @@ export async function sharePdfViaWhatsApp(
 }
 
 export function schedulePdfFilename(companyName: string, windowStart: string) {
-  const d = new Date(windowStart);
-  const stamp = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
-  const safe = (companyName || "pluga").replace(/[^\w\u0590-\u05FF\-]+/g, "_");
-  return `shibutz-${safe}-${stamp}.pdf`;
+  const stamp = stampDate(new Date(windowStart));
+  return `shibutz-${safeCompany(companyName)}-${stamp}.pdf`;
+}
+
+export function schedulePlanPdfFilename(
+  companyName: string,
+  startIso: string,
+  endIso: string
+) {
+  const a = stampDate(new Date(startIso));
+  const b = stampDate(new Date(endIso));
+  return `shibutz-${safeCompany(companyName)}-${a}_to_${b}.pdf`;
 }

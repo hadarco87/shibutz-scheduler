@@ -19,7 +19,9 @@ import { routineMissionsForWindow, resolveStaffingForStart, windowShiftsForRange
 import {
   downloadBlob,
   elementToPdfBlob,
+  elementsToCombinedPdfBlob,
   schedulePdfFilename,
+  schedulePlanPdfFilename,
   sharePdfViaWhatsApp,
 } from "@/lib/schedulePdf";
 import { assignmentsForMission, openSlotsForMission } from "@/lib/assignmentOrder";
@@ -675,17 +677,63 @@ export default function HomePage() {
     return elementToPdfBlob(el);
   }
 
+  async function capturePlanDaysAsCombinedPdf(): Promise<{
+    blob: Blob;
+    filename: string;
+  }> {
+    if (!token || !plan || plan.days.length === 0) {
+      const blob = await buildPdfBlob();
+      return {
+        blob,
+        filename: schedulePdfFilename(
+          user?.company_name || "pluga",
+          schedule!.window_start
+        ),
+      };
+    }
+    const previousId = schedule?.id;
+    const clones: HTMLElement[] = [];
+    try {
+      for (const day of plan.days) {
+        await loadDaySchedule(token, day.id, { sync: false });
+        await new Promise((r) => window.requestAnimationFrame(() => r(null)));
+        await new Promise((r) => window.setTimeout(r, 50));
+        const el = pdfRef.current;
+        if (!el) throw new Error("לא ניתן להפיק PDF כרגע");
+        const clone = el.cloneNode(true) as HTMLElement;
+        clone.setAttribute("aria-hidden", "true");
+        clone.style.position = "fixed";
+        clone.style.insetInlineStart = "-12000px";
+        clone.style.top = "0";
+        clone.style.pointerEvents = "none";
+        document.body.appendChild(clone);
+        clones.push(clone);
+      }
+      const blob = await elementsToCombinedPdfBlob(clones);
+      const filename = schedulePlanPdfFilename(
+        user?.company_name || "pluga",
+        plan.days[0].window_start,
+        plan.days[plan.days.length - 1].window_start
+      );
+      return { blob, filename };
+    } finally {
+      for (const c of clones) c.remove();
+      if (previousId) {
+        await loadDaySchedule(token, previousId, { sync: false });
+      }
+    }
+  }
+
   async function buildAndDownloadPdf() {
     if (!schedule) return;
     setPdfBusy(true);
     setError("");
     try {
       const blob = await buildPdfBlob();
-      const name = schedulePdfFilename(
-        user?.company_name || "pluga",
-        schedule.window_start
+      downloadBlob(
+        blob,
+        schedulePdfFilename(user?.company_name || "pluga", schedule.window_start)
       );
-      downloadBlob(blob, name);
     } catch (e) {
       setError(e instanceof Error ? e.message : "הפקת PDF נכשלה");
     } finally {
@@ -693,30 +741,16 @@ export default function HomePage() {
     }
   }
 
-  async function buildAndDownloadAllPlanPdfs() {
-    if (!token || !plan || !plan.days.length) {
+  async function buildAndDownloadPlanPdf() {
+    if (!plan || plan.days.length <= 1) {
       await buildAndDownloadPdf();
       return;
     }
     setPdfBusy(true);
     setError("");
-    const previousId = schedule?.id;
     try {
-      for (const day of plan.days) {
-        await loadDaySchedule(token, day.id, { sync: false });
-        await new Promise((r) => window.requestAnimationFrame(() => r(null)));
-        await new Promise((r) => window.setTimeout(r, 40));
-        const blob = await buildPdfBlob();
-        const name = schedulePdfFilename(
-          user?.company_name || "pluga",
-          day.window_start
-        );
-        downloadBlob(blob, name);
-        await new Promise((r) => window.setTimeout(r, 200));
-      }
-      if (previousId) {
-        await loadDaySchedule(token, previousId, { sync: false });
-      }
+      const { blob, filename } = await capturePlanDaysAsCombinedPdf();
+      downloadBlob(blob, filename);
     } catch (e) {
       setError(e instanceof Error ? e.message : "הפקת PDF נכשלה");
     } finally {
@@ -729,17 +763,27 @@ export default function HomePage() {
     setPdfBusy(true);
     setError("");
     try {
-      const blob = await buildPdfBlob();
-      const name = schedulePdfFilename(
-        user?.company_name || "pluga",
-        schedule.window_start
-      );
-      const day = new Date(schedule.window_start).toLocaleDateString("he-IL");
-      await sharePdfViaWhatsApp(
-        blob,
-        name,
-        `שיבוץ ${user?.company_name || "הפלוגה"} ל־${day}`
-      );
+      const multi = !!(plan && plan.days.length > 1);
+      if (multi) {
+        const { blob, filename } = await capturePlanDaysAsCombinedPdf();
+        await sharePdfViaWhatsApp(
+          blob,
+          filename,
+          `שיבוץ ${user?.company_name || "הפלוגה"} ל־${plan!.days_count} ימים`
+        );
+      } else {
+        const blob = await buildPdfBlob();
+        const name = schedulePdfFilename(
+          user?.company_name || "pluga",
+          schedule.window_start
+        );
+        const day = new Date(schedule.window_start).toLocaleDateString("he-IL");
+        await sharePdfViaWhatsApp(
+          blob,
+          name,
+          `שיבוץ ${user?.company_name || "הפלוגה"} ל־${day}`
+        );
+      }
     } catch (e) {
       setError(e instanceof Error ? e.message : "שיתוף נכשל");
     } finally {
@@ -751,7 +795,11 @@ export default function HomePage() {
     if (!autoPdfAfterPublish) return;
     if (!schedule || schedule.status !== "published") return;
     setAutoPdfAfterPublish(false);
-    void buildAndDownloadPdf();
+    if (plan && plan.days.length > 1) {
+      void buildAndDownloadPlanPdf();
+    } else {
+      void buildAndDownloadPdf();
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoPdfAfterPublish, schedule]);
 
@@ -1012,24 +1060,40 @@ export default function HomePage() {
             ) : null}
             {schedule?.status === "published" || plan?.status === "published" ? (
               <>
-                <button
-                  className="btn btn-primary"
-                  type="button"
-                  disabled={pdfBusy || !schedule}
-                  onClick={() => void buildAndDownloadPdf()}
-                >
-                  {pdfBusy ? "מכין PDF…" : "הורד PDF"}
-                </button>
                 {plan && plan.days.length > 1 ? (
+                  <>
+                    <button
+                      className="btn btn-primary"
+                      type="button"
+                      disabled={pdfBusy}
+                      onClick={() => void buildAndDownloadPlanPdf()}
+                    >
+                      {pdfBusy ? "מכין PDF…" : "הורד PDF לכל התקופה"}
+                    </button>
+                    <button
+                      className="btn btn-ghost"
+                      type="button"
+                      disabled={pdfBusy || !schedule}
+                      onClick={() => void buildAndDownloadPdf()}
+                      title={
+                        schedule
+                          ? `רק ${formatDayTitle(schedule.window_start)}`
+                          : undefined
+                      }
+                    >
+                      PDF ליום שנבחר
+                    </button>
+                  </>
+                ) : (
                   <button
-                    className="btn btn-ghost"
+                    className="btn btn-primary"
                     type="button"
-                    disabled={pdfBusy}
-                    onClick={() => void buildAndDownloadAllPlanPdfs()}
+                    disabled={pdfBusy || !schedule}
+                    onClick={() => void buildAndDownloadPdf()}
                   >
-                    PDF לכל הימים
+                    {pdfBusy ? "מכין PDF…" : "הורד PDF"}
                   </button>
-                ) : null}
+                )}
                 <button
                   className="btn btn-accent"
                   type="button"
@@ -1830,7 +1894,7 @@ export default function HomePage() {
             <h2 id="publish-share-title">השיבוץ פורסם</h2>
             <p>
               {plan && plan.days.length > 1
-                ? "התוכנית פורסמה. אפשר להוריד PDF ליום הנוכחי, לכל הימים, או לשתף בוואטסאפ."
+                ? "התוכנית פורסמה. ברירת המחדל היא קובץ PDF אחד לכל התקופה — אפשר גם להוריד רק את היום שנבחר, או לשתף בוואטסאפ."
                 : `קובץ PDF של שיבוץ הפלוגה מוכן. אפשר להוריד שוב או לשתף בוואטסאפ${
                     includePdfTimeline ? " (כולל ציר זמן)" : ""
                   }.`}
@@ -1843,24 +1907,35 @@ export default function HomePage() {
               >
                 סגור
               </button>
-              <button
-                className="btn btn-primary btn-small"
-                type="button"
-                disabled={pdfBusy}
-                onClick={() => void buildAndDownloadPdf()}
-              >
-                {pdfBusy ? "…" : "הורד PDF"}
-              </button>
               {plan && plan.days.length > 1 ? (
+                <>
+                  <button
+                    className="btn btn-primary btn-small"
+                    type="button"
+                    disabled={pdfBusy}
+                    onClick={() => void buildAndDownloadPlanPdf()}
+                  >
+                    {pdfBusy ? "…" : "PDF לכל התקופה"}
+                  </button>
+                  <button
+                    className="btn btn-ghost btn-small"
+                    type="button"
+                    disabled={pdfBusy || !schedule}
+                    onClick={() => void buildAndDownloadPdf()}
+                  >
+                    PDF ליום שנבחר
+                  </button>
+                </>
+              ) : (
                 <button
-                  className="btn btn-ghost btn-small"
+                  className="btn btn-primary btn-small"
                   type="button"
                   disabled={pdfBusy}
-                  onClick={() => void buildAndDownloadAllPlanPdfs()}
+                  onClick={() => void buildAndDownloadPdf()}
                 >
-                  כל הימים
+                  {pdfBusy ? "…" : "הורד PDF"}
                 </button>
-              ) : null}
+              )}
               <button
                 className="btn btn-accent btn-small"
                 type="button"
