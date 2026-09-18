@@ -1193,6 +1193,22 @@ textarea {
   max-width: 100%;
 }
 
+.chip-open-slot {
+  border: 1.5px dashed rgba(139, 46, 46, 0.45);
+  background: rgba(139, 46, 46, 0.06);
+  color: var(--danger);
+}
+
+.chip-open-slot-title {
+  color: var(--danger);
+  font-size: 0.85rem;
+}
+
+.chip-open-slot .chip-meta {
+  color: rgba(139, 46, 46, 0.9);
+  font-weight: 600;
+}
+
 .chip-text {
   display: flex;
   flex-direction: column;

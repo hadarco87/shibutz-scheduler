@@ -141,3 +141,100 @@ export function assignmentsForMission(
     assignments.filter((a) => a.mission_id === missionId)
   );
 }
+
+export type OpenStaffingSlot = {
+  key: string;
+  requirementId?: number;
+  roleName?: string | null;
+  qualificationName?: string | null;
+  label: string;
+};
+
+function slotLabel(
+  roleName?: string | null,
+  qualificationName?: string | null,
+  fallback?: string | null
+): string {
+  const parts = [roleName, qualificationName].filter(Boolean);
+  if (parts.length) return parts.join(" · ");
+  if (fallback?.trim()) return fallback.trim();
+  return "איוש כללי";
+}
+
+/**
+ * Unfilled requirement seats for a mission, in the same display order as people chips.
+ */
+export function openSlotsForMission(
+  mission: {
+    id: number;
+    personnel_count: number;
+    requirements?: {
+      id: number;
+      count: number;
+      label?: string | null;
+      role_name?: string | null;
+      qualification_name?: string | null;
+      role_id?: number | null;
+      qualification_id?: number | null;
+    }[];
+  },
+  assignments: Assignment[]
+): OpenStaffingSlot[] {
+  const assigned = assignments.filter((a) => a.mission_id === mission.id);
+  const reqs = [...(mission.requirements || [])];
+  const used = new Set<number>();
+  const open: OpenStaffingSlot[] = [];
+
+  const sortedReqs = [...reqs].sort((a, b) => {
+    const ka = requirementSortKey({
+      role_id: a.role_id,
+      qualification_id: a.qualification_id,
+      roleName: a.role_name,
+      qualName: a.qualification_name,
+    });
+    const kb = requirementSortKey({
+      role_id: b.role_id,
+      qualification_id: b.qualification_id,
+      roleName: b.role_name,
+      qualName: b.qualification_name,
+    });
+    for (let i = 0; i < 3; i++) {
+      if (ka[i] !== kb[i]) return (ka[i] as number) - (kb[i] as number);
+    }
+    return ka[3].localeCompare(kb[3], "he");
+  });
+
+  for (const req of sortedReqs) {
+    let filled = 0;
+    for (const a of assigned) {
+      if (used.has(a.id)) continue;
+      if (a.requirement_id === req.id) {
+        used.add(a.id);
+        filled += 1;
+      }
+    }
+    const missing = Math.max(0, req.count - filled);
+    for (let i = 0; i < missing; i++) {
+      open.push({
+        key: `req-${req.id}-${i}`,
+        requirementId: req.id,
+        roleName: req.role_name,
+        qualificationName: req.qualification_name,
+        label: slotLabel(req.role_name, req.qualification_name, req.label),
+      });
+    }
+  }
+
+  const leftoverShortfall = Math.max(
+    0,
+    mission.personnel_count - assigned.length - open.length
+  );
+  for (let i = 0; i < leftoverShortfall; i++) {
+    open.push({
+      key: `general-${mission.id}-${i}`,
+      label: "איוש כללי",
+    });
+  }
+
+  return open;
+}

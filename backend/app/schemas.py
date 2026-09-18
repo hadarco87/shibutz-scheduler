@@ -454,6 +454,8 @@ class MissionRequirementOut(ORMModel):
     label: Optional[str]
     exact_role: bool = False
     exact_qualification: bool = True
+    role_name: Optional[str] = None
+    qualification_name: Optional[str] = None
 
 
 class MissionOut(ORMModel):

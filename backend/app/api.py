@@ -472,6 +472,8 @@ def mission_out(m: Mission) -> MissionOut:
                     if getattr(r, "exact_qualification", None) is None
                     else bool(r.exact_qualification)
                 ),
+                role_name=r.role.name if r.role else None,
+                qualification_name=r.qualification.name if r.qualification else None,
             )
             for r in m.requirements
         ],
@@ -538,7 +540,12 @@ def schedule_out(db: Session, schedule: Schedule) -> ScheduleOut:
             joinedload(Schedule.assignments)
             .joinedload(Assignment.requirement)
             .joinedload(MissionRequirement.qualification),
-            joinedload(Schedule.missions).joinedload(Mission.requirements),
+            joinedload(Schedule.missions)
+            .joinedload(Mission.requirements)
+            .joinedload(MissionRequirement.role),
+            joinedload(Schedule.missions)
+            .joinedload(Mission.requirements)
+            .joinedload(MissionRequirement.qualification),
             joinedload(Schedule.missions).joinedload(Mission.mission_type),
         )
         .filter(Schedule.id == schedule.id)

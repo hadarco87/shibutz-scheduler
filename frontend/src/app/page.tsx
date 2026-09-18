@@ -22,7 +22,7 @@ import {
   schedulePdfFilename,
   sharePdfViaWhatsApp,
 } from "@/lib/schedulePdf";
-import { assignmentsForMission } from "@/lib/assignmentOrder";
+import { assignmentsForMission, openSlotsForMission } from "@/lib/assignmentOrder";
 
 function formatRange(start: string, end: string) {
   const s = new Date(start);
@@ -1505,7 +1505,8 @@ export default function HomePage() {
                   schedule.assignments,
                   m.id
                 );
-                const understaffed = assigned.length < m.personnel_count;
+                const openSlots = openSlotsForMission(m, schedule.assignments);
+                const understaffed = openSlots.length > 0;
                 return (
                   <article
                     key={m.id}
@@ -1532,6 +1533,9 @@ export default function HomePage() {
                         <div className={`time${understaffed ? " understaffed-label" : ""}`}>
                           קושי {m.difficulty_weight}/5 · {assigned.length}/
                           {m.personnel_count} אנשים
+                          {understaffed
+                            ? ` · חסר: ${openSlots.map((s) => s.label).join(" · ")}`
+                            : ""}
                         </div>
                       </div>
                       <div className="time">
@@ -1539,10 +1543,10 @@ export default function HomePage() {
                       </div>
                     </header>
                     <div className="people-chips">
-                      {assigned.length === 0 ? (
+                      {assigned.length === 0 && openSlots.length === 0 ? (
                         <span style={{ color: "var(--danger)" }}>לא מאויש</span>
-                      ) : (
-                        assigned.map((a) => {
+                      ) : null}
+                      {assigned.map((a) => {
                           const meta = [
                             a.person_role_name,
                             (a.person_qualification_names || []).join(", ") || null,
@@ -1580,8 +1584,19 @@ export default function HomePage() {
                               ) : null}
                             </span>
                           );
-                        })
-                      )}
+                        })}
+                      {openSlots.map((slot) => (
+                        <span
+                          key={slot.key}
+                          className="chip chip-person chip-open-slot"
+                          title="משבצת שטרם אוישה"
+                        >
+                          <span className="chip-text">
+                            <strong className="chip-open-slot-title">חסר</strong>
+                            <span className="chip-meta">{slot.label}</span>
+                          </span>
+                        </span>
+                      ))}
                     </div>
                     {replaceFor && assigned.some((a) => a.id === replaceFor) ? (
                       <div

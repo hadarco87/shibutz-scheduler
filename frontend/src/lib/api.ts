@@ -574,6 +574,8 @@ export type Mission = {
     qualification_id?: number | null;
     count: number;
     label?: string | null;
+    role_name?: string | null;
+    qualification_name?: string | null;
   }[];
 };
 
