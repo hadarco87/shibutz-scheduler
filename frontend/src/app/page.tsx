@@ -280,6 +280,57 @@ export default function HomePage() {
     return `השיבוץ הבא יופעל ממחר · ${planDaysCount} ימים`;
   }, [planStartKind, planDaysCount]);
 
+  const selectedScopeDisplay = useMemo(() => {
+    const short: Intl.DateTimeFormatOptions = {
+      day: "numeric",
+      month: "short",
+    };
+    if (planStartKind === "today") {
+      const d = calendarDayWindow("today").start;
+      return {
+        title: formatDayTitle(d),
+        chip: "יום אחד",
+        kicker: "יעד לשיבוץ",
+      };
+    }
+    const start = calendarDayWindow("tomorrow").start;
+    if (planDaysCount <= 1) {
+      return {
+        title: formatDayTitle(start),
+        chip: "יום אחד",
+        kicker: "יעד לשיבוץ",
+      };
+    }
+    const end = new Date(start);
+    end.setDate(end.getDate() + planDaysCount - 1);
+    return {
+      title: `${start.toLocaleDateString("he-IL", short)} – ${end.toLocaleDateString("he-IL", short)}`,
+      chip: `${planDaysCount} ימים`,
+      kicker: "יעד לשיבוץ",
+    };
+  }, [planStartKind, planDaysCount]);
+
+  const viewingDiffersFromSelection = useMemo(() => {
+    if (!schedule) return false;
+    if (plan && plan.days.length > 1) {
+      return !(
+        plan.days_count === planDaysCount &&
+        planStartKind === "tomorrow" &&
+        sameCalendarDay(
+          new Date(plan.days[0].window_start),
+          calendarDayWindow("tomorrow").start
+        )
+      );
+    }
+    const want = calendarDayWindow(
+      planStartKind === "today" ? "today" : "tomorrow"
+    ).start;
+    return (
+      planDaysCount !== 1 ||
+      !sameCalendarDay(new Date(schedule.window_start), want)
+    );
+  }, [schedule, plan, planStartKind, planDaysCount]);
+
   const rosterByRole = useMemo(() => {
     const counts = new Map<string, number>();
     for (const p of people) {
@@ -999,24 +1050,22 @@ export default function HomePage() {
             </div>
             <div>
               <span className="schedule-range-kicker">
-                {schedule ? "חלון מוצג כעת" : "אין חלון מוצג"}
+                {selectedScopeDisplay.kicker}
               </span>
               <div className="schedule-range-title-row">
-                <strong>
+                <strong>{selectedScopeDisplay.title}</strong>
+                <span className="schedule-range-chip">
+                  {selectedScopeDisplay.chip}
+                </span>
+              </div>
+              {viewingDiffersFromSelection && schedule ? (
+                <p className="schedule-range-viewing">
+                  מוצג למטה כעת:{" "}
                   {plan && plan.days.length > 1
                     ? planRangeLabel
-                    : schedule
-                      ? formatDayTitle(schedule.window_start)
-                      : "בחרו טווח והריצו שיבוץ"}
-                </strong>
-                {schedule || (plan && plan.days.length > 1) ? (
-                  <span className="schedule-range-chip">
-                    {plan && plan.days.length > 1
-                      ? `${plan.days_count} ימים`
-                      : "יום אחד"}
-                  </span>
-                ) : null}
-              </div>
+                    : formatDayTitle(schedule.window_start)}
+                </p>
+              ) : null}
             </div>
           </div>
 

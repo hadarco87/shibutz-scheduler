@@ -349,6 +349,13 @@ textarea {
   text-align: end;
 }
 
+.schedule-range-viewing {
+  margin: 0.35rem 0 0;
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  line-height: 1.35;
+}
+
 .schedule-range-quick {
   margin: 0;
   text-align: end;
