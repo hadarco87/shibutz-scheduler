@@ -434,6 +434,12 @@ textarea {
   gap: 0.75rem;
 }
 
+.schedule-metrics-in-workspace {
+  margin-top: 1.15rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--line);
+}
+
 .metric-card {
   padding: 0.95rem 1rem;
   border-radius: 16px;

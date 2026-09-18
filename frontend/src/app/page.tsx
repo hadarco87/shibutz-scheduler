@@ -1239,153 +1239,6 @@ export default function HomePage() {
           </section>
         ) : null}
 
-        <div className="schedule-metrics">
-          <div className="stat-stack">
-            <button
-              type="button"
-              className={`metric-card metric-card-button ${rosterOpen ? "open" : ""}`}
-              onClick={() => setRosterOpen((v) => !v)}
-              aria-expanded={rosterOpen}
-            >
-              <div className="metric-card-head">
-                <span className="metric-label">כוח אדם זמין</span>
-                <span className="metric-icon metric-icon-ok" aria-hidden>
-                  ◇
-                </span>
-              </div>
-              <div className="metric-value-row">
-                <span className="metric-value">{availableCount}</span>
-                <span className="metric-unit">
-                  חיילים פעילים {rosterOpen ? "▴" : "▾"}
-                </span>
-              </div>
-              <div className="metric-foot">
-                <span>
-                  משובצים ביום זה: <strong>{assignedPeopleCount}</strong>
-                </span>
-                <span
-                  className={
-                    availableCount > 0 ? "metric-foot-ok" : "metric-foot-muted"
-                  }
-                >
-                  {availableCount > 0 ? "במאגר השיבוץ" : "אין כוח אדם"}
-                </span>
-              </div>
-            </button>
-            {rosterOpen ? (
-              <div className="roster-breakdown">
-                <div className="roster-breakdown-title">פירוט לפי תפקיד</div>
-                {rosterByRole.length === 0 ? (
-                  <p style={{ margin: 0, color: "var(--ink-soft)" }}>
-                    אין כוח אדם פעיל.
-                  </p>
-                ) : (
-                  <ul className="roster-breakdown-list">
-                    {rosterByRole.map((row) => (
-                      <li key={row.role}>
-                        <span>{row.role}</span>
-                        <strong>{row.count}</strong>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            ) : null}
-          </div>
-
-          {staffing.shortfall > 0 ? (
-            <button
-              type="button"
-              className="metric-card metric-card-button metric-card-danger"
-              onClick={() => setScrollToUnderstaffed(true)}
-              title="מעבר למשמרת עם חוסר איוש"
-            >
-              <div className="metric-card-head">
-                <span className="metric-label">משימות ואיוש</span>
-                <span className="metric-icon metric-icon-danger" aria-hidden>
-                  ▤
-                </span>
-              </div>
-              <div className="metric-value-row">
-                <span className="metric-value">{missionCount}</span>
-                <span className="metric-unit">משימות בחלון</span>
-              </div>
-              <div className="metric-foot">
-                <span>
-                  מקומות איוש:{" "}
-                  <strong>
-                    {staffing.filled}/{staffing.needed || 0}
-                  </strong>
-                </span>
-                <span className="metric-foot-danger">
-                  חסר {staffing.shortfall} · לחצו למעבר
-                </span>
-              </div>
-            </button>
-          ) : (
-            <div className="metric-card">
-              <div className="metric-card-head">
-                <span className="metric-label">משימות ואיוש</span>
-                <span className="metric-icon metric-icon-info" aria-hidden>
-                  ▤
-                </span>
-              </div>
-              <div className="metric-value-row">
-                <span className="metric-value">{missionCount}</span>
-                <span className="metric-unit">משימות בחלון</span>
-              </div>
-              <div className="metric-foot">
-                <span>
-                  מקומות איוש:{" "}
-                  <strong>
-                    {staffing.filled}/{staffing.needed || 0}
-                  </strong>
-                </span>
-                {staffing.needed > 0 ? (
-                  <span className="metric-foot-ok">מאויש במלואו</span>
-                ) : (
-                  <span className="metric-foot-muted">אין משימות עדיין</span>
-                )}
-              </div>
-            </div>
-          )}
-
-          <div className="metric-card">
-            <div className="metric-card-head">
-              <span className="metric-label">קונפליקטים</span>
-              <span
-                className={`metric-icon ${
-                  conflictCount > 0
-                    ? "metric-icon-danger"
-                    : hasRunResult
-                      ? "metric-icon-ok"
-                      : "metric-icon-info"
-                }`}
-                aria-hidden
-              >
-                !
-              </span>
-            </div>
-            <div className="metric-value-row">
-              <span className="metric-value">{conflictCount}</span>
-              <span className="metric-unit">מריצת השיבוץ</span>
-            </div>
-            {conflictMetric ? (
-              <div className="metric-foot">
-                <span
-                  className={
-                    conflictMetric.tone === "ok"
-                      ? "metric-foot-ok"
-                      : "metric-foot-warn"
-                  }
-                >
-                  {conflictMetric.text}
-                </span>
-              </div>
-            ) : null}
-          </div>
-        </div>
-
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {result?.status === "success" ? (
           <div className="alert alert-ok">שיבוץ תקין — כל המשימות מאוישות.</div>
@@ -1475,6 +1328,155 @@ export default function HomePage() {
               שיבוץ מפורסם — לא ניתן לשנות את רשימת המשימות.
             </p>
           ) : null}
+
+          <div className="schedule-metrics schedule-metrics-in-workspace">
+            <div className="stat-stack">
+              <button
+                type="button"
+                className={`metric-card metric-card-button ${rosterOpen ? "open" : ""}`}
+                onClick={() => setRosterOpen((v) => !v)}
+                aria-expanded={rosterOpen}
+              >
+                <div className="metric-card-head">
+                  <span className="metric-label">כוח אדם זמין</span>
+                  <span className="metric-icon metric-icon-ok" aria-hidden>
+                    ◇
+                  </span>
+                </div>
+                <div className="metric-value-row">
+                  <span className="metric-value">{availableCount}</span>
+                  <span className="metric-unit">
+                    חיילים פעילים {rosterOpen ? "▴" : "▾"}
+                  </span>
+                </div>
+                <div className="metric-foot">
+                  <span>
+                    משובצים ביום זה: <strong>{assignedPeopleCount}</strong>
+                  </span>
+                  <span
+                    className={
+                      availableCount > 0
+                        ? "metric-foot-ok"
+                        : "metric-foot-muted"
+                    }
+                  >
+                    {availableCount > 0 ? "במאגר השיבוץ" : "אין כוח אדם"}
+                  </span>
+                </div>
+              </button>
+              {rosterOpen ? (
+                <div className="roster-breakdown">
+                  <div className="roster-breakdown-title">פירוט לפי תפקיד</div>
+                  {rosterByRole.length === 0 ? (
+                    <p style={{ margin: 0, color: "var(--ink-soft)" }}>
+                      אין כוח אדם פעיל.
+                    </p>
+                  ) : (
+                    <ul className="roster-breakdown-list">
+                      {rosterByRole.map((row) => (
+                        <li key={row.role}>
+                          <span>{row.role}</span>
+                          <strong>{row.count}</strong>
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              ) : null}
+            </div>
+
+            {staffing.shortfall > 0 ? (
+              <button
+                type="button"
+                className="metric-card metric-card-button metric-card-danger"
+                onClick={() => setScrollToUnderstaffed(true)}
+                title="מעבר למשמרת עם חוסר איוש"
+              >
+                <div className="metric-card-head">
+                  <span className="metric-label">משימות ואיוש</span>
+                  <span className="metric-icon metric-icon-danger" aria-hidden>
+                    ▤
+                  </span>
+                </div>
+                <div className="metric-value-row">
+                  <span className="metric-value">{missionCount}</span>
+                  <span className="metric-unit">משימות בחלון</span>
+                </div>
+                <div className="metric-foot">
+                  <span>
+                    מקומות איוש:{" "}
+                    <strong>
+                      {staffing.filled}/{staffing.needed || 0}
+                    </strong>
+                  </span>
+                  <span className="metric-foot-danger">
+                    חסר {staffing.shortfall} · לחצו למעבר
+                  </span>
+                </div>
+              </button>
+            ) : (
+              <div className="metric-card">
+                <div className="metric-card-head">
+                  <span className="metric-label">משימות ואיוש</span>
+                  <span className="metric-icon metric-icon-info" aria-hidden>
+                    ▤
+                  </span>
+                </div>
+                <div className="metric-value-row">
+                  <span className="metric-value">{missionCount}</span>
+                  <span className="metric-unit">משימות בחלון</span>
+                </div>
+                <div className="metric-foot">
+                  <span>
+                    מקומות איוש:{" "}
+                    <strong>
+                      {staffing.filled}/{staffing.needed || 0}
+                    </strong>
+                  </span>
+                  {staffing.needed > 0 ? (
+                    <span className="metric-foot-ok">מאויש במלואו</span>
+                  ) : (
+                    <span className="metric-foot-muted">אין משימות עדיין</span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            <div className="metric-card">
+              <div className="metric-card-head">
+                <span className="metric-label">קונפליקטים</span>
+                <span
+                  className={`metric-icon ${
+                    conflictCount > 0
+                      ? "metric-icon-danger"
+                      : hasRunResult
+                        ? "metric-icon-ok"
+                        : "metric-icon-info"
+                  }`}
+                  aria-hidden
+                >
+                  !
+                </span>
+              </div>
+              <div className="metric-value-row">
+                <span className="metric-value">{conflictCount}</span>
+                <span className="metric-unit">מריצת השיבוץ</span>
+              </div>
+              {conflictMetric ? (
+                <div className="metric-foot">
+                  <span
+                    className={
+                      conflictMetric.tone === "ok"
+                        ? "metric-foot-ok"
+                        : "metric-foot-warn"
+                    }
+                  >
+                    {conflictMetric.text}
+                  </span>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </section>
       ) : null}
 
