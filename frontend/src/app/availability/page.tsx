@@ -178,14 +178,7 @@ export default function AvailabilityPage() {
         {ok ? <div className="alert alert-ok">{ok}</div> : null}
       </header>
 
-      <section className="page-section" aria-labelledby="avail-add-heading">
-        <h2 id="avail-add-heading" className="page-section-label">
-          הוספה ועריכה
-        </h2>
-        <p className="page-section-desc">
-          כאן מוסיפים ומגדירים — לחצו על חלונית כדי לפתוח אותה.
-        </p>
-
+      <section className="page-section">
         <AfterGrantsAccordion />
 
         <SettingsAccordion
@@ -388,14 +381,7 @@ export default function AvailabilityPage() {
       </SettingsAccordion>
       </section>
 
-      <section className="page-section" aria-labelledby="avail-list-heading">
-        <h2 id="avail-list-heading" className="page-section-label">
-          רשימות
-        </h2>
-        <p className="page-section-desc">
-          תצוגה של רשומות קיימות — אפשר למחוק מכאן.
-        </p>
-
+      <section className="page-section">
       <section className="panel panel-list">
         <h2 style={{ marginTop: 0 }}>חופשות</h2>
         <table className="table">
