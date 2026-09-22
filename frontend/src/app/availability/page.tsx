@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useState } from "react";
 import { AfterGrantsAccordion } from "@/components/AfterGrantsAccordion";
 import { AppShell } from "@/components/AppShell";
 import { useConfirm } from "@/components/ConfirmDialog";
+import { SettingsAccordion } from "@/components/SettingsAccordion";
 import { useAuth } from "@/lib/auth";
 import { api, Leave, Person, RecurringRestriction, Restriction } from "@/lib/api";
 
@@ -179,8 +180,10 @@ export default function AvailabilityPage() {
 
       <AfterGrantsAccordion />
 
-      <section className="panel">
-        <h2 style={{ marginTop: 0 }}>חופשה / מגבלה חד־פעמית</h2>
+      <SettingsAccordion
+        title="חופשה / מגבלה חד־פעמית"
+        hint="טווח תאריכים חד־פעמי לחייל"
+      >
         <div className="form-grid" style={{ maxWidth: 560 }}>
           <label>
             חייל
@@ -232,10 +235,12 @@ export default function AvailabilityPage() {
             </button>
           </div>
         </div>
-      </section>
+      </SettingsAccordion>
 
-      <section className="panel">
-        <h2 style={{ marginTop: 0 }}>מגבלה רוטינית</h2>
+      <SettingsAccordion
+        title="מגבלה רוטינית"
+        hint="חוזרת לפי יום / שבוע / מחזור"
+      >
         <form className="form-grid" onSubmit={addRecurring} style={{ maxWidth: 560 }}>
           <label>
             חייל
@@ -366,7 +371,7 @@ export default function AvailabilityPage() {
             הוסף מגבלה רוטינית
           </button>
         </form>
-      </section>
+      </SettingsAccordion>
 
       <section className="panel">
         <h2 style={{ marginTop: 0 }}>חופשות</h2>
