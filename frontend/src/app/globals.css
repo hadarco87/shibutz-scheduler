@@ -1662,21 +1662,31 @@ button.chip.active {
   overflow-wrap: anywhere;
 }
 
+.people-table th {
+  white-space: normal;
+  line-height: 1.25;
+  overflow: hidden;
+  hyphens: auto;
+}
+
 .people-table .col-select {
   width: 2.2rem;
 }
 
 .people-table .col-name {
-  width: 14%;
+  width: 13%;
 }
 
 .people-table .col-id {
-  width: 6.5rem;
+  width: 6rem;
+}
+
+.people-table td.col-id {
   white-space: nowrap;
 }
 
 .people-table .col-role {
-  width: 5.5rem;
+  width: 5.25rem;
 }
 
 .people-table .col-label {
@@ -1684,21 +1694,25 @@ button.chip.active {
 }
 
 .people-table .col-quals {
-  width: 12%;
-}
-
-.people-table .col-missions {
   width: 11%;
 }
 
+.people-table .col-missions {
+  width: 10%;
+}
+
 .people-table .col-after {
-  width: 4.5rem;
+  width: 5.25rem;
   text-align: center;
+}
+
+.people-table td.col-after {
   white-space: nowrap;
 }
 
 .people-table .col-availability {
-  width: 22%;
+  width: 18%;
+  min-width: 0;
 }
 
 .people-table .col-actions {
