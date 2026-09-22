@@ -1413,8 +1413,9 @@ button.chip.active {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  font-size: 0.88rem;
   color: var(--ink-soft);
+  font-size: 0.85rem;
+  white-space: nowrap;
 }
 
 .bulk-action-bar {
@@ -1481,11 +1482,6 @@ button.chip.active {
   border-radius: 8px;
   padding: 0.45rem 0.6rem;
   background: #fff;
-}
-  gap: 0.45rem;
-  color: var(--ink-soft);
-  font-size: 0.85rem;
-  white-space: nowrap;
 }
 
 .filter-toggle {
