@@ -22,6 +22,9 @@ from app.models import (
     MissionTypeWindow,
     Person,
     PersonAllowedMissionType,
+    PersonLabel,
+    PersonLabelAssignment,
+    PersonLabelOption,
     PersonQualification,
     Qualification,
     RecurringRestriction,
@@ -336,6 +339,30 @@ def wipe_catalog(db: Session, company_id: int, *, delete_roles: bool) -> dict:
     else:
         counts["qualifications"] = 0
 
+    label_ids = _scalar_ids(
+        db.query(PersonLabel.id).filter(PersonLabel.company_id == company_id).all()
+    )
+    if label_ids:
+        counts["person_label_assignments"] = (
+            db.query(PersonLabelAssignment)
+            .filter(PersonLabelAssignment.label_id.in_(label_ids))
+            .delete(synchronize_session=False)
+        )
+        counts["person_label_options"] = (
+            db.query(PersonLabelOption)
+            .filter(PersonLabelOption.label_id.in_(label_ids))
+            .delete(synchronize_session=False)
+        )
+        counts["person_labels"] = (
+            db.query(PersonLabel)
+            .filter(PersonLabel.id.in_(label_ids))
+            .delete(synchronize_session=False)
+        )
+    else:
+        counts["person_label_assignments"] = 0
+        counts["person_label_options"] = 0
+        counts["person_labels"] = 0
+
     if delete_roles and role_ids:
         counts["role_capabilities"] = (
             db.query(RoleCapability)
@@ -387,6 +414,9 @@ def wipe_people(db: Session, company_id: int) -> dict:
     ).delete(synchronize_session=False)
     db.query(PersonAllowedMissionType).filter(
         PersonAllowedMissionType.person_id.in_(person_ids)
+    ).delete(synchronize_session=False)
+    db.query(PersonLabelAssignment).filter(
+        PersonLabelAssignment.person_id.in_(person_ids)
     ).delete(synchronize_session=False)
     db.query(LeavePeriod).filter(LeavePeriod.person_id.in_(person_ids)).delete(
         synchronize_session=False

@@ -129,6 +129,57 @@ class QualificationOut(ORMModel):
     is_active: bool
 
 
+# Person labels (תוויות) — up to 3 columns per company
+class PersonLabelOptionIn(BaseModel):
+    name: str
+    sort_order: int = 0
+    is_active: bool = True
+
+
+class PersonLabelOptionOut(ORMModel):
+    id: int
+    label_id: int
+    name: str
+    sort_order: int
+    is_active: bool
+
+
+class PersonLabelCreate(BaseModel):
+    name: str
+    selection_mode: str = "single"  # single | multi
+    sort_order: Optional[int] = None
+    options: List[PersonLabelOptionIn] = Field(default_factory=list)
+
+
+class PersonLabelUpdate(BaseModel):
+    name: Optional[str] = None
+    selection_mode: Optional[str] = None
+    sort_order: Optional[int] = None
+    is_active: Optional[bool] = None
+    options: Optional[List[PersonLabelOptionIn]] = None
+
+
+class PersonLabelOut(ORMModel):
+    id: int
+    company_id: int
+    name: str
+    selection_mode: str
+    sort_order: int
+    is_active: bool
+    options: List[PersonLabelOptionOut] = Field(default_factory=list)
+
+
+class PersonLabelValueIn(BaseModel):
+    label_id: int
+    option_ids: List[int] = Field(default_factory=list)
+
+
+class PersonLabelValueOut(BaseModel):
+    label_id: int
+    option_ids: List[int] = Field(default_factory=list)
+    option_names: List[str] = Field(default_factory=list)
+
+
 # People
 class PersonCreate(BaseModel):
     full_name: str
@@ -139,6 +190,7 @@ class PersonCreate(BaseModel):
     notes: Optional[str] = None
     qualification_ids: List[int] = Field(default_factory=list)
     allowed_mission_type_ids: List[int] = Field(default_factory=list)
+    label_values: List[PersonLabelValueIn] = Field(default_factory=list)
 
 
 class PersonUpdate(BaseModel):
@@ -151,6 +203,7 @@ class PersonUpdate(BaseModel):
     is_active: Optional[bool] = None
     qualification_ids: Optional[List[int]] = None
     allowed_mission_type_ids: Optional[List[int]] = None
+    label_values: Optional[List[PersonLabelValueIn]] = None
 
 
 class PersonOut(ORMModel):
@@ -165,6 +218,7 @@ class PersonOut(ORMModel):
     is_active: bool
     qualification_ids: List[int] = Field(default_factory=list)
     allowed_mission_type_ids: List[int] = Field(default_factory=list)
+    label_values: List[PersonLabelValueOut] = Field(default_factory=list)
     role_name: Optional[str] = None
     after_count_30d: int = 0
     last_after_end: Optional[datetime] = None
@@ -176,6 +230,7 @@ class PeopleImportRowOut(BaseModel):
     phone: Optional[str] = None
     role_name: Optional[str] = None
     qualification_names: List[str] = Field(default_factory=list)
+    label_names: dict = Field(default_factory=dict)  # label display name -> option names
     notes: Optional[str] = None
     action: str  # create | update | skip
     match_person_id: Optional[int] = None

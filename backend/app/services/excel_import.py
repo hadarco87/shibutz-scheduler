@@ -10,7 +10,15 @@ from typing import Any, Dict, List, Optional, Tuple
 from openpyxl import load_workbook
 from sqlalchemy.orm import Session, joinedload
 
-from app.models import Person, PersonQualification, Qualification, Role
+from app.models import (
+    LabelSelectionMode,
+    Person,
+    PersonLabelAssignment,
+    PersonQualification,
+    Qualification,
+    Role,
+)
+from app.services.person_labels import get_or_create_option, load_company_labels
 
 
 def _norm_header(value: Any) -> str:
@@ -73,6 +81,8 @@ class ParsedPersonRow:
     phone: Optional[str] = None
     role_name: Optional[str] = None
     qualification_names: List[str] = field(default_factory=list)
+    # display label name -> option value strings
+    label_values: Dict[str, List[str]] = field(default_factory=dict)
     notes: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
     raw: Dict[str, Any] = field(default_factory=dict)
@@ -100,9 +110,14 @@ def _cell_str(value: Any) -> Optional[str]:
     return s
 
 
-def _match_field(header: str) -> Optional[str]:
+def _match_field(header: str, label_names: Optional[List[str]] = None) -> Optional[str]:
     if not header:
         return None
+    # Exact match against company label display names first
+    if label_names:
+        for ln in label_names:
+            if _norm_header(ln) == header:
+                return f"label:{ln}"
     # Exact / contained alias match, longest first
     candidates: List[Tuple[int, str]] = []
     for field_name, aliases in FIELD_ALIASES.items():
@@ -113,6 +128,12 @@ def _match_field(header: str) -> Optional[str]:
             if header == a or a in header or header in a:
                 candidates.append((len(a), field_name))
     if not candidates:
+        # Fuzzy: header contained in a label name or vice versa
+        if label_names:
+            for ln in label_names:
+                n = _norm_header(ln)
+                if n and (header == n or n in header or header in n):
+                    return f"label:{ln}"
         return None
     candidates.sort(reverse=True)
     return candidates[0][1]
@@ -136,13 +157,18 @@ def _score_mapping(mapping: Dict[str, int]) -> int:
     for k, w in weights.items():
         if k in mapping:
             score += w
+    for k in mapping:
+        if k.startswith("label:"):
+            score += 2
     # Prefer first+last over ambiguous "שם" alone
     if "first_name" in mapping and "last_name" in mapping:
         score += 3
     return score
 
 
-def _find_header_row(ws, max_scan: int = 15) -> Tuple[int, Dict[str, int], Dict[str, str]]:
+def _find_header_row(
+    ws, max_scan: int = 15, label_names: Optional[List[str]] = None
+) -> Tuple[int, Dict[str, int], Dict[str, str]]:
     best = (0, {}, {})  # score, mapping col_index, display mapping
     max_row = min(max_scan, ws.max_row or 0)
     max_col = min(40, ws.max_column or 0)
@@ -152,7 +178,7 @@ def _find_header_row(ws, max_scan: int = 15) -> Tuple[int, Dict[str, int], Dict[
         for c in range(1, max_col + 1):
             raw = ws.cell(r, c).value
             header = _norm_header(raw)
-            field_name = _match_field(header)
+            field_name = _match_field(header, label_names)
             if field_name and field_name not in mapping:
                 mapping[field_name] = c
                 display[field_name] = str(raw).strip() if raw is not None else field_name
@@ -216,7 +242,24 @@ def _build_notes(
     return " · ".join(bits) if bits else None
 
 
-def _parse_rows(ws, mapping: Dict[str, int], start_row: int) -> List[ParsedPersonRow]:
+def _split_multi_values(raw: Optional[str]) -> List[str]:
+    if not raw:
+        return []
+    parts = re.split(r"[/,|\\]+", raw)
+    out: List[str] = []
+    for p in parts:
+        name = p.strip()
+        if name and name not in out:
+            out.append(name)
+    return out
+
+
+def _parse_rows(
+    ws,
+    mapping: Dict[str, int],
+    start_row: int,
+    label_names: Optional[List[str]] = None,
+) -> List[ParsedPersonRow]:
     rows: List[ParsedPersonRow] = []
     max_row = ws.max_row or 0
     for r in range(start_row + 1, max_row + 1):
@@ -252,6 +295,40 @@ def _parse_rows(ws, mapping: Dict[str, int], start_row: int) -> List[ParsedPerso
         quals = _split_qualifications(pakal, role_name)
         notes = _build_notes(platoon, department, squad, rank and f"דרגה: {rank}")
 
+        label_values: Dict[str, List[str]] = {}
+        names_by_norm = {_norm_header(n): n for n in (label_names or [])}
+
+        for key in mapping:
+            if not key.startswith("label:"):
+                continue
+            label_name = key[len("label:") :]
+            col = mapping[key]
+            cell = _cell_str(ws.cell(r, col).value)
+            vals = _split_multi_values(cell)
+            if vals:
+                label_values[label_name] = vals
+
+        alias_map = {
+            "department": department,
+            "squad": squad,
+            "platoon": platoon,
+        }
+        alias_targets = {
+            "department": ("מחלקה",),
+            "squad": ("כיתה",),
+            "platoon": ("פלוגה", "יחידה"),
+        }
+        for field, raw in alias_map.items():
+            if not raw:
+                continue
+            matched: Optional[str] = None
+            for target in alias_targets[field]:
+                if _norm_header(target) in names_by_norm:
+                    matched = names_by_norm[_norm_header(target)]
+                    break
+            if matched and matched not in label_values:
+                label_values[matched] = _split_multi_values(raw)
+
         warnings: List[str] = []
         if not personal:
             warnings.append("ללא מספר אישי — יותאם לפי שם")
@@ -262,6 +339,7 @@ def _parse_rows(ws, mapping: Dict[str, int], start_row: int) -> List[ParsedPerso
                 phone=phone,
                 role_name=role_name,
                 qualification_names=quals,
+                label_values=label_values,
                 notes=notes,
                 warnings=warnings,
                 raw={
@@ -276,7 +354,9 @@ def _parse_rows(ws, mapping: Dict[str, int], start_row: int) -> List[ParsedPerso
 
 
 def parse_people_workbook(
-    data: bytes, preferred_sheet: Optional[str] = None
+    data: bytes,
+    preferred_sheet: Optional[str] = None,
+    label_names: Optional[List[str]] = None,
 ) -> ParseResult:
     wb = load_workbook(io.BytesIO(data), data_only=True, keep_vba=False)
     sheet_options = [
@@ -291,7 +371,7 @@ def parse_people_workbook(
     candidates: List[Tuple[int, str, Dict[str, int], Dict[str, str], int]] = []
     for name in sheet_options:
         ws = wb[name]
-        score, mapping, display = _find_header_row(ws)
+        score, mapping, display = _find_header_row(ws, label_names=label_names)
         if score <= 0:
             continue
         bonus = 0
@@ -318,19 +398,20 @@ def parse_people_workbook(
 
     # Re-find header row index for start
     header_row = 1
-    max_scan = min(15, ws.max_row or 0)
+    max_row = min(15, ws.max_row or 0)
     max_col = min(40, ws.max_column or 0)
-    for r in range(1, max_scan + 1):
-        found = {}
+    for r in range(1, max_row + 1):
+        trial: Dict[str, int] = {}
         for c in range(1, max_col + 1):
-            field_name = _match_field(_norm_header(ws.cell(r, c).value))
-            if field_name and field_name not in found:
-                found[field_name] = c
-        if found == mapping:
+            raw = ws.cell(r, c).value
+            field_name = _match_field(_norm_header(raw), label_names)
+            if field_name and field_name not in trial:
+                trial[field_name] = c
+        if trial == mapping:
             header_row = r
             break
 
-    rows = _parse_rows(ws, mapping, header_row)
+    rows = _parse_rows(ws, mapping, header_row, label_names=label_names)
     if not rows:
         raise ValueError(f"בגיליון «{sheet_name}» לא נמצאו שורות עם שמות חיילים")
 
@@ -435,9 +516,50 @@ def apply_people_import(
         .all()
     }
 
+    labels = load_company_labels(db, company_id)
+    labels_by_norm = {_norm_header(lb.name): lb for lb in labels if lb.is_active}
+    option_cache: Dict[tuple, object] = {}
+
     created = updated = skipped = quals_created = 0
     warnings: List[str] = []
     preview_rows: List[dict] = []
+
+    def resolve_label_preview(row_labels: Dict[str, List[str]]) -> Dict[str, List[str]]:
+        out: Dict[str, List[str]] = {}
+        for name, vals in (row_labels or {}).items():
+            lb = labels_by_norm.get(_norm_header(name))
+            if not lb or not vals:
+                continue
+            mode = lb.selection_mode
+            is_single = (
+                mode == LabelSelectionMode.SINGLE or str(mode) == "single"
+            )
+            use_vals = vals[:1] if is_single else vals
+            out[lb.name] = use_vals
+        return out
+
+    def apply_labels_to_person(person: Person, row_labels: Dict[str, List[str]]) -> None:
+        resolved = resolve_label_preview(row_labels)
+        if not resolved:
+            return
+        # Replace only labels present in the row (leave others untouched)
+        touched_ids = set()
+        for name, vals in resolved.items():
+            lb = labels_by_norm[_norm_header(name)]
+            touched_ids.add(lb.id)
+            db.query(PersonLabelAssignment).filter(
+                PersonLabelAssignment.person_id == person.id,
+                PersonLabelAssignment.label_id == lb.id,
+            ).delete(synchronize_session=False)
+            for v in vals:
+                opt = get_or_create_option(db, lb, v, option_cache)  # type: ignore[arg-type]
+                db.add(
+                    PersonLabelAssignment(
+                        person_id=person.id,
+                        label_id=lb.id,
+                        option_id=opt.id,
+                    )
+                )
 
     for row in parsed.rows:
         match: Optional[Person] = None
@@ -448,6 +570,7 @@ def apply_people_import(
 
         role = _role_by_name(roles, row.role_name or "חייל")
         action = "update" if match else "create"
+        label_preview = resolve_label_preview(row.label_values)
 
         if not commit:
             preview_rows.append(
@@ -457,6 +580,7 @@ def apply_people_import(
                     "phone": row.phone,
                     "role_name": role.name,
                     "qualification_names": row.qualification_names,
+                    "label_names": label_preview,
                     "notes": row.notes,
                     "action": action,
                     "match_person_id": match.id if match else None,
@@ -490,6 +614,7 @@ def apply_people_import(
             ).delete()
             for qid in qual_ids:
                 db.add(PersonQualification(person_id=match.id, qualification_id=qid))
+            apply_labels_to_person(match, row.label_values)
             updated += 1
             action = "update"
             pid = match.id
@@ -506,6 +631,7 @@ def apply_people_import(
             db.flush()
             for qid in qual_ids:
                 db.add(PersonQualification(person_id=person.id, qualification_id=qid))
+            apply_labels_to_person(person, row.label_values)
             by_name[person.full_name.strip().lower()] = person
             if person.personal_number:
                 by_pn[person.personal_number] = person
@@ -520,6 +646,7 @@ def apply_people_import(
                 "phone": row.phone,
                 "role_name": role.name,
                 "qualification_names": row.qualification_names,
+                "label_names": label_preview,
                 "notes": row.notes,
                 "action": action,
                 "match_person_id": pid,

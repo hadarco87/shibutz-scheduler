@@ -76,6 +76,11 @@ class ConstraintType(str, enum.Enum):
     AVOID_REPEAT_MISSION = "avoid_repeat_mission"
 
 
+class LabelSelectionMode(str, enum.Enum):
+    SINGLE = "single"
+    MULTI = "multi"
+
+
 class SchedulingRuleKind(str, enum.Enum):
     TRANSITION = "transition"
     MIN_PRESENCE = "min_presence"
@@ -108,6 +113,7 @@ class Company(Base, TimestampMixin):
     people: Mapped[List["Person"]] = relationship(back_populates="company")
     roles: Mapped[List["Role"]] = relationship(back_populates="company")
     qualifications: Mapped[List["Qualification"]] = relationship(back_populates="company")
+    person_labels: Mapped[List["PersonLabel"]] = relationship(back_populates="company")
     mission_types: Mapped[List["MissionType"]] = relationship(back_populates="company")
     missions: Mapped[List["Mission"]] = relationship(back_populates="company")
     schedules: Mapped[List["Schedule"]] = relationship(back_populates="company")
@@ -201,6 +207,44 @@ class Qualification(Base, TimestampMixin):
     company: Mapped["Company"] = relationship(back_populates="qualifications")
 
 
+class PersonLabel(Base, TimestampMixin):
+    """Company-defined personnel column (e.g. מחלקה). Max 3 per company (API-enforced)."""
+
+    __tablename__ = "person_labels"
+    __table_args__ = (
+        UniqueConstraint("company_id", "name", name="uq_person_label_company_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    company_id: Mapped[int] = mapped_column(ForeignKey("companies.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    selection_mode: Mapped[LabelSelectionMode] = mapped_column(
+        Enum(LabelSelectionMode), default=LabelSelectionMode.SINGLE
+    )
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    company: Mapped["Company"] = relationship(back_populates="person_labels")
+    options: Mapped[List["PersonLabelOption"]] = relationship(
+        back_populates="label", cascade="all, delete-orphan"
+    )
+
+
+class PersonLabelOption(Base):
+    __tablename__ = "person_label_options"
+    __table_args__ = (
+        UniqueConstraint("label_id", "name", name="uq_person_label_option_name"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    label_id: Mapped[int] = mapped_column(ForeignKey("person_labels.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String(100), nullable=False)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+
+    label: Mapped["PersonLabel"] = relationship(back_populates="options")
+
+
 class Person(Base, TimestampMixin):
     __tablename__ = "people"
 
@@ -221,6 +265,9 @@ class Person(Base, TimestampMixin):
     qualifications: Mapped[List["PersonQualification"]] = relationship(
         back_populates="person", cascade="all, delete-orphan"
     )
+    label_assignments: Mapped[List["PersonLabelAssignment"]] = relationship(
+        back_populates="person", cascade="all, delete-orphan"
+    )
     leave_periods: Mapped[List["LeavePeriod"]] = relationship(
         back_populates="person", cascade="all, delete-orphan"
     )
@@ -233,6 +280,26 @@ class Person(Base, TimestampMixin):
     allowed_mission_types: Mapped[List["PersonAllowedMissionType"]] = relationship(
         back_populates="person", cascade="all, delete-orphan"
     )
+
+
+class PersonLabelAssignment(Base):
+    __tablename__ = "person_label_assignments"
+    __table_args__ = (
+        UniqueConstraint(
+            "person_id", "label_id", "option_id", name="uq_person_label_assignment"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    person_id: Mapped[int] = mapped_column(ForeignKey("people.id"), nullable=False)
+    label_id: Mapped[int] = mapped_column(ForeignKey("person_labels.id"), nullable=False)
+    option_id: Mapped[int] = mapped_column(
+        ForeignKey("person_label_options.id"), nullable=False
+    )
+
+    person: Mapped["Person"] = relationship(back_populates="label_assignments")
+    label: Mapped["PersonLabel"] = relationship()
+    option: Mapped["PersonLabelOption"] = relationship()
 
 
 class PersonQualification(Base):

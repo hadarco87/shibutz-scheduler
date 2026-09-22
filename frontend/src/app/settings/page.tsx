@@ -12,6 +12,7 @@ import {
   KanimRule,
   MissionType,
   MissionTypeRequirement,
+  PersonLabel,
   Qualification,
   Role,
   SchedulingRule,
@@ -73,6 +74,12 @@ export default function SettingsPage() {
 
   const [qualName, setQualName] = useState("");
   const [editingQualId, setEditingQualId] = useState<number | null>(null);
+
+  const [personLabels, setPersonLabels] = useState<PersonLabel[]>([]);
+  const [labelName, setLabelName] = useState("");
+  const [labelMode, setLabelMode] = useState<"single" | "multi">("single");
+  const [labelOptionsText, setLabelOptionsText] = useState("");
+  const [editingLabelId, setEditingLabelId] = useState<number | null>(null);
 
   const [editingMtId, setEditingMtId] = useState<number | null>(null);
   const [mtName, setMtName] = useState("");
@@ -158,9 +165,10 @@ export default function SettingsPage() {
 
   const refresh = useCallback(async () => {
     if (!token) return;
-    const [q, r, mt, kr, sr, mem, inv] = await Promise.all([
+    const [q, r, labels, mt, kr, sr, mem, inv] = await Promise.all([
       api.qualifications(token),
       api.roles(token),
+      api.personLabels(token),
       api.missionTypes(token),
       api.kanimRules(token),
       api.schedulingRules(token),
@@ -169,12 +177,65 @@ export default function SettingsPage() {
     ]);
     setQuals(q);
     setRoles(r);
+    setPersonLabels(
+      [...labels].sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+    );
     setMissionTypes(mt);
     setKanimRules(kr);
     setSchedulingRules(sr);
     setMembers(mem);
     setInvites(inv);
   }, [token]);
+
+  function resetLabelForm() {
+    setEditingLabelId(null);
+    setLabelName("");
+    setLabelMode("single");
+    setLabelOptionsText("");
+  }
+
+  function parseLabelOptions(text: string) {
+    return text
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((name, i) => ({ name, sort_order: i, is_active: true }));
+  }
+
+  async function savePersonLabel(e: FormEvent) {
+    e.preventDefault();
+    if (!token) return;
+    const name = labelName.trim();
+    if (!name) return;
+    setError("");
+    setOk("");
+    try {
+      const options = parseLabelOptions(labelOptionsText);
+      if (editingLabelId) {
+        await api.updatePersonLabel(token, editingLabelId, {
+          name,
+          selection_mode: labelMode,
+          options,
+        });
+        setOk("תווית עודכנה");
+      } else {
+        if (personLabels.length >= 3) {
+          setError("ניתן להגדיר עד 3 תוויות");
+          return;
+        }
+        await api.createPersonLabel(token, {
+          name,
+          selection_mode: labelMode,
+          options,
+        });
+        setOk("תווית נוספה");
+      }
+      resetLabelForm();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "שמירת תווית נכשלה");
+    }
+  }
 
   function inviteLink(tokenValue: string) {
     if (typeof window === "undefined") return "";
@@ -888,7 +949,8 @@ export default function SettingsPage() {
       <section className="panel">
         <h1 style={{ marginTop: 0 }}>הגדרות</h1>
         <p style={{ color: "var(--ink-soft)" }}>
-          תפקידים, פק״לים וקטלוג סוגי משימות. בחירת משימות לחלון נעשית במסך השיבוץ.
+          תפקידים, פק״לים, תוויות וקטלוג סוגי משימות. בחירת משימות לחלון נעשית במסך
+          השיבוץ.
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {ok ? <div className="alert alert-ok">{ok}</div> : null}
@@ -1248,6 +1310,167 @@ export default function SettingsPage() {
                 </td>
               </tr>
             ))}
+          </tbody>
+        </table>
+      </SettingsAccordion>
+
+      <SettingsAccordion
+        title="תוויות"
+        hint="עד 3 עמודות סיווג בכוח אדם (למשל מחלקה)"
+      >
+        <h2 style={{ marginTop: 0 }}>תוויות</h2>
+        <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+          כל תווית היא עמודה בטבלת כוח אדם. בחרו שם ייעודי (למשל «מחלקה»), האם
+          בחירה יחידה או מרובה, ואת רשימת הערכים. לא משפיע על אלגוריתם השיבוץ.
+        </p>
+        <form className="form-grid" onSubmit={savePersonLabel} style={{ maxWidth: 560 }}>
+          <label>
+            {editingLabelId ? "עריכת תווית" : "תווית חדשה"}
+            <input
+              value={labelName}
+              onChange={(e) => setLabelName(e.target.value)}
+              placeholder='לדוגמה: מחלקה, כיתה, צוות'
+              required
+              disabled={!editingLabelId && personLabels.length >= 3}
+            />
+          </label>
+          <div>
+            <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>
+              מצב בחירה
+            </div>
+            <div className="people-chips">
+              <button
+                type="button"
+                className={`chip ${labelMode === "single" ? "manual" : ""}`}
+                onClick={() => setLabelMode("single")}
+              >
+                בחירה יחידה
+              </button>
+              <button
+                type="button"
+                className={`chip ${labelMode === "multi" ? "manual" : ""}`}
+                onClick={() => setLabelMode("multi")}
+              >
+                בחירה מרובה
+              </button>
+            </div>
+          </div>
+          <label>
+            ערכים (מופרדים בפסיק או שורה חדשה)
+            <textarea
+              value={labelOptionsText}
+              onChange={(e) => setLabelOptionsText(e.target.value)}
+              placeholder={"מחלקה א'\nמחלקה ב'\nמחלקה ג'"}
+              rows={4}
+            />
+          </label>
+          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+            <button
+              className="btn btn-primary"
+              type="submit"
+              disabled={!editingLabelId && personLabels.length >= 3}
+            >
+              {editingLabelId ? "שמור תווית" : "הוסף תווית"}
+            </button>
+            {editingLabelId ? (
+              <button
+                className="btn btn-ghost"
+                type="button"
+                onClick={() => resetLabelForm()}
+              >
+                ביטול
+              </button>
+            ) : null}
+          </div>
+          {!editingLabelId && personLabels.length >= 3 ? (
+            <p style={{ color: "var(--ink-soft)", margin: 0 }}>
+              הוגדרו 3 תוויות — מחקו אחת כדי להוסיף חדשה.
+            </p>
+          ) : null}
+        </form>
+
+        <table className="table" style={{ marginTop: "1rem" }}>
+          <thead>
+            <tr>
+              <th>שם</th>
+              <th>בחירה</th>
+              <th>ערכים</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {personLabels.length === 0 ? (
+              <tr>
+                <td colSpan={4} style={{ color: "var(--ink-soft)" }}>
+                  עדיין אין תוויות
+                </td>
+              </tr>
+            ) : (
+              personLabels.map((lb) => (
+                <tr key={lb.id}>
+                  <td>{lb.name}</td>
+                  <td>
+                    {lb.selection_mode === "multi" ? "מרובה" : "יחידה"}
+                  </td>
+                  <td>
+                    {lb.options
+                      .filter((o) => o.is_active)
+                      .map((o) => o.name)
+                      .join(", ") || "—"}
+                  </td>
+                  <td style={{ display: "flex", gap: "0.35rem", flexWrap: "wrap" }}>
+                    <button
+                      className="btn btn-ghost btn-small"
+                      type="button"
+                      onClick={() => {
+                        setEditingLabelId(lb.id);
+                        setLabelName(lb.name);
+                        setLabelMode(
+                          lb.selection_mode === "multi" ? "multi" : "single"
+                        );
+                        setLabelOptionsText(
+                          lb.options
+                            .slice()
+                            .sort((a, b) => a.sort_order - b.sort_order)
+                            .map((o) => o.name)
+                            .join("\n")
+                        );
+                      }}
+                    >
+                      עריכה
+                    </button>
+                    <button
+                      className="btn btn-ghost btn-small"
+                      type="button"
+                      onClick={async () => {
+                        if (!token) return;
+                        const okConfirm = await confirm({
+                          title: "מחיקת תווית",
+                          message: `למחוק את התווית «${lb.name}»? הערכים יוסרו מכל החיילים.`,
+                          confirmLabel: "מחק",
+                          tone: "danger",
+                        });
+                        if (!okConfirm) return;
+                        setError("");
+                        setOk("");
+                        try {
+                          await api.deletePersonLabel(token, lb.id);
+                          if (editingLabelId === lb.id) resetLabelForm();
+                          setOk("תווית נמחקה");
+                          await refresh();
+                        } catch (err) {
+                          setError(
+                            err instanceof Error ? err.message : "מחיקה נכשלה"
+                          );
+                        }
+                      }}
+                    >
+                      מחק
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
           </tbody>
         </table>
       </SettingsAccordion>

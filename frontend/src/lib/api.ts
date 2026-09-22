@@ -160,6 +160,13 @@ export const api = {
     request<Qualification>(`/qualifications/${id}`, { method: "PUT", body: JSON.stringify(body) }, token),
   deleteQualification: (token: string, id: number) =>
     request(`/qualifications/${id}`, { method: "DELETE" }, token),
+  personLabels: (token: string) => request<PersonLabel[]>("/person-labels", {}, token),
+  createPersonLabel: (token: string, body: object) =>
+    request<PersonLabel>("/person-labels", { method: "POST", body: JSON.stringify(body) }, token),
+  updatePersonLabel: (token: string, id: number, body: object) =>
+    request<PersonLabel>(`/person-labels/${id}`, { method: "PUT", body: JSON.stringify(body) }, token),
+  deletePersonLabel: (token: string, id: number) =>
+    request(`/person-labels/${id}`, { method: "DELETE" }, token),
   missionTypes: (token: string) => request<MissionType[]>("/mission-types", {}, token),
   createMissionType: (token: string, body: object) =>
     request<MissionType>("/mission-types", { method: "POST", body: JSON.stringify(body) }, token),
@@ -361,9 +368,34 @@ export type Person = {
   is_active: boolean;
   qualification_ids: number[];
   allowed_mission_type_ids: number[];
+  label_values?: PersonLabelValue[];
   role_name?: string | null;
   after_count_30d?: number;
   last_after_end?: string | null;
+};
+
+export type PersonLabelValue = {
+  label_id: number;
+  option_ids: number[];
+  option_names?: string[];
+};
+
+export type PersonLabelOption = {
+  id: number;
+  label_id: number;
+  name: string;
+  sort_order: number;
+  is_active: boolean;
+};
+
+export type PersonLabel = {
+  id: number;
+  company_id: number;
+  name: string;
+  selection_mode: "single" | "multi" | string;
+  sort_order: number;
+  is_active: boolean;
+  options: PersonLabelOption[];
 };
 
 export type PeopleImportPreview = {
@@ -376,6 +408,7 @@ export type PeopleImportPreview = {
     phone?: string | null;
     role_name?: string | null;
     qualification_names: string[];
+    label_names?: Record<string, string[]>;
     notes?: string | null;
     action: string;
     match_person_id?: number | null;

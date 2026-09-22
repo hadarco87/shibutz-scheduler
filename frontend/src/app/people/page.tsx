@@ -10,6 +10,7 @@ import {
   MissionType,
   PeopleImportPreview,
   Person,
+  PersonLabel,
   Qualification,
   RecurringRestriction,
   Restriction,
@@ -57,6 +58,7 @@ export default function PeoplePage() {
   const [people, setPeople] = useState<Person[]>([]);
   const [roles, setRoles] = useState<Role[]>([]);
   const [quals, setQuals] = useState<Qualification[]>([]);
+  const [personLabels, setPersonLabels] = useState<PersonLabel[]>([]);
   const [missionTypes, setMissionTypes] = useState<MissionType[]>([]);
   const [leave, setLeave] = useState<Leave[]>([]);
   const [restrictions, setRestrictions] = useState<Restriction[]>([]);
@@ -70,6 +72,9 @@ export default function PeoplePage() {
   const [phone, setPhone] = useState("");
   const [roleId, setRoleId] = useState<number | "">("");
   const [selectedQuals, setSelectedQuals] = useState<number[]>([]);
+  const [selectedLabels, setSelectedLabels] = useState<Record<number, number[]>>(
+    {}
+  );
   const [allowedTypes, setAllowedTypes] = useState<number[]>([]);
   const [newQualName, setNewQualName] = useState("");
   const [qualBusy, setQualBusy] = useState(false);
@@ -77,6 +82,9 @@ export default function PeoplePage() {
   const [filterName, setFilterName] = useState("");
   const [filterRoleId, setFilterRoleId] = useState<number | "">("");
   const [filterQualId, setFilterQualId] = useState<number | "">("");
+  const [filterLabelOption, setFilterLabelOption] = useState<
+    Record<number, number | "">
+  >({});
   const [filterMission, setFilterMission] = useState<number | "" | "all" | "limited">(
     ""
   );
@@ -95,10 +103,11 @@ export default function PeoplePage() {
 
   async function refresh() {
     if (!token) return;
-    const [p, r, q, mt, l, rest, rec] = await Promise.all([
+    const [p, r, q, labels, mt, l, rest, rec] = await Promise.all([
       api.people(token),
       api.roles(token),
       api.qualifications(token),
+      api.personLabels(token),
       api.missionTypes(token),
       api.leave(token),
       api.restrictions(token),
@@ -107,6 +116,12 @@ export default function PeoplePage() {
     setPeople(p);
     setRoles(r);
     setQuals(q.filter((x) => x.is_active));
+    setPersonLabels(
+      labels
+        .filter((x) => x.is_active)
+        .sort((a, b) => a.sort_order - b.sort_order || a.id - b.id)
+        .slice(0, 3)
+    );
     setMissionTypes(mt.filter((x) => x.is_active));
     setLeave(l);
     setRestrictions(rest);
@@ -154,6 +169,14 @@ export default function PeoplePage() {
       if (filterQualId !== "" && !p.qualification_ids.includes(filterQualId)) {
         return false;
       }
+      for (const lb of personLabels) {
+        const optFilter = filterLabelOption[lb.id];
+        if (optFilter === undefined || optFilter === "") continue;
+        const assigned =
+          (p.label_values || []).find((v) => v.label_id === lb.id)?.option_ids ||
+          [];
+        if (!assigned.includes(optFilter)) return false;
+      }
       const allowed = p.allowed_mission_type_ids || [];
       if (filterMission === "all") {
         if (allowed.length !== 0) return false;
@@ -169,9 +192,11 @@ export default function PeoplePage() {
     });
   }, [
     people,
+    personLabels,
     filterName,
     filterRoleId,
     filterQualId,
+    filterLabelOption,
     filterMission,
     filterAfter,
     showSuspended,
@@ -182,10 +207,15 @@ export default function PeoplePage() {
     [people]
   );
 
+  const labelFiltersActive = personLabels.some(
+    (lb) => filterLabelOption[lb.id] !== undefined && filterLabelOption[lb.id] !== ""
+  );
+
   const filtersActive =
     !!filterName.trim() ||
     filterRoleId !== "" ||
     filterQualId !== "" ||
+    labelFiltersActive ||
     filterMission !== "" ||
     filterAfter !== "" ||
     showSuspended;
@@ -194,6 +224,7 @@ export default function PeoplePage() {
     setFilterName("");
     setFilterRoleId("");
     setFilterQualId("");
+    setFilterLabelOption({});
     setFilterMission("");
     setFilterAfter("");
     setShowSuspended(false);
@@ -210,6 +241,12 @@ export default function PeoplePage() {
     return [first.trim(), last.trim()].filter(Boolean).join(" ");
   }
 
+  function emptyLabelSelection(): Record<number, number[]> {
+    const next: Record<number, number[]> = {};
+    for (const lb of personLabels) next[lb.id] = [];
+    return next;
+  }
+
   function resetForm() {
     setEditingId(null);
     setFirstName("");
@@ -217,6 +254,7 @@ export default function PeoplePage() {
     setPersonalNumber("");
     setPhone("");
     setSelectedQuals([]);
+    setSelectedLabels(emptyLabelSelection());
     setAllowedTypes([]);
     if (roles[0]) setRoleId(roles[0].id);
   }
@@ -235,7 +273,44 @@ export default function PeoplePage() {
     setPhone(p.phone || "");
     setRoleId(p.role_id);
     setSelectedQuals([...p.qualification_ids]);
+    const lv: Record<number, number[]> = emptyLabelSelection();
+    for (const v of p.label_values || []) {
+      lv[v.label_id] = [...v.option_ids];
+    }
+    setSelectedLabels(lv);
     setAllowedTypes([...(p.allowed_mission_type_ids || [])]);
+  }
+
+  function toggleLabelOption(label: PersonLabel, optionId: number) {
+    setSelectedLabels((prev) => {
+      const cur = prev[label.id] || [];
+      const multi = label.selection_mode === "multi";
+      if (multi) {
+        return {
+          ...prev,
+          [label.id]: cur.includes(optionId)
+            ? cur.filter((id) => id !== optionId)
+            : [...cur, optionId],
+        };
+      }
+      return {
+        ...prev,
+        [label.id]: cur.includes(optionId) ? [] : [optionId],
+      };
+    });
+  }
+
+  function personLabelCell(p: Person, labelId: number) {
+    const v = (p.label_values || []).find((x) => x.label_id === labelId);
+    if (!v || !v.option_ids.length) return "—";
+    if (v.option_names?.length) return v.option_names.join(", ");
+    const lb = personLabels.find((x) => x.id === labelId);
+    return (
+      v.option_ids
+        .map((id) => lb?.options.find((o) => o.id === id)?.name)
+        .filter(Boolean)
+        .join(", ") || "—"
+    );
   }
 
   async function toggleSuspend(p: Person) {
@@ -326,6 +401,10 @@ export default function PeoplePage() {
         phone: phone.trim() || "",
         qualification_ids: selectedQuals,
         allowed_mission_type_ids: allowedTypes,
+        label_values: personLabels.map((lb) => ({
+          label_id: lb.id,
+          option_ids: selectedLabels[lb.id] || [],
+        })),
       };
       if (editingId) {
         await api.updatePerson(token, editingId, body);
@@ -405,6 +484,40 @@ export default function PeoplePage() {
             ))}
           </select>
         </label>
+
+        {personLabels.map((lb) => {
+          const selected = selectedLabels[lb.id] || [];
+          const activeOpts = lb.options.filter((o) => o.is_active);
+          return (
+            <div key={lb.id}>
+              <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>
+                {lb.name}
+                <span className="field-optional">
+                  {lb.selection_mode === "multi" ? "בחירה מרובה" : "בחירה יחידה"}
+                </span>
+              </div>
+              <div className="people-chips">
+                {activeOpts.length === 0 ? (
+                  <span style={{ color: "var(--ink-soft)", fontSize: "0.88rem" }}>
+                    אין ערכים — הוסיפו בהגדרות
+                  </span>
+                ) : (
+                  activeOpts.map((o) => (
+                    <button
+                      key={o.id}
+                      type="button"
+                      className={`chip ${selected.includes(o.id) ? "manual" : ""}`}
+                      onClick={() => toggleLabelOption(lb, o.id)}
+                    >
+                      {o.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            </div>
+          );
+        })}
+
         <div>
           <div style={{ marginBottom: "0.4rem", color: "var(--ink-soft)" }}>
             פק״לים
@@ -745,7 +858,7 @@ export default function PeoplePage() {
         >
           <summary className="import-summary">
             <span>הוספה ידנית</span>
-            <span className="import-summary-hint">שם · תפקיד · פק״לים</span>
+            <span className="import-summary-hint">שם · תפקיד · תוויות · פק״לים</span>
           </summary>
           <div className="import-panel">
             <form
@@ -803,6 +916,34 @@ export default function PeoplePage() {
               </option>
             ))}
           </select>
+          {personLabels.map((lb) => (
+            <select
+              key={lb.id}
+              className={
+                filterLabelOption[lb.id] !== undefined &&
+                filterLabelOption[lb.id] !== ""
+                  ? "is-active"
+                  : undefined
+              }
+              value={filterLabelOption[lb.id] ?? ""}
+              onChange={(e) =>
+                setFilterLabelOption((prev) => ({
+                  ...prev,
+                  [lb.id]: e.target.value ? Number(e.target.value) : "",
+                }))
+              }
+              aria-label={`סינון לפי ${lb.name}`}
+            >
+              <option value="">{lb.name}</option>
+              {lb.options
+                .filter((o) => o.is_active)
+                .map((o) => (
+                  <option key={o.id} value={o.id}>
+                    {o.name}
+                  </option>
+                ))}
+            </select>
+          ))}
           <select
             className={filterMission !== "" ? "is-active" : undefined}
             value={filterMission}
@@ -880,6 +1021,9 @@ export default function PeoplePage() {
               <th>שם</th>
               <th>מס׳ אישי</th>
               <th>תפקיד</th>
+              {personLabels.map((lb) => (
+                <th key={lb.id}>{lb.name}</th>
+              ))}
               <th>פק״לים</th>
               <th>משימות מותרות</th>
               <th>אפטר (30 ימים)</th>
@@ -890,7 +1034,10 @@ export default function PeoplePage() {
           <tbody>
             {filteredPeople.length === 0 ? (
               <tr>
-                <td colSpan={8} style={{ color: "var(--ink-soft)" }}>
+                <td
+                  colSpan={8 + personLabels.length}
+                  style={{ color: "var(--ink-soft)" }}
+                >
                   אין תוצאות לפי הסינון הנוכחי
                 </td>
               </tr>
@@ -922,6 +1069,9 @@ export default function PeoplePage() {
                     </td>
                     <td>{p.personal_number || "—"}</td>
                     <td>{p.role_name}</td>
+                    {personLabels.map((lb) => (
+                      <td key={lb.id}>{personLabelCell(p, lb.id)}</td>
+                    ))}
                     <td>
                       {p.qualification_ids
                         .map((id) => quals.find((q) => q.id === id)?.name)
@@ -968,7 +1118,7 @@ export default function PeoplePage() {
                   </tr>
                   {editingId === p.id ? (
                     <tr className="person-inline-edit-row">
-                      <td colSpan={8}>
+                      <td colSpan={8 + personLabels.length}>
                         <form
                           className="form-grid person-form person-form-inline"
                           onSubmit={onSubmit}

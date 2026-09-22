@@ -25,6 +25,8 @@ from app.models import (
     MissionTypeBandRequirement,
     Person,
     PersonAllowedMissionType,
+    PersonLabel,
+    PersonLabelAssignment,
     PersonQualification,
     Qualification,
     RecurringRestriction,
@@ -87,6 +89,9 @@ from app.schemas import (
     PersonCreate,
     PersonOut,
     PersonUpdate,
+    PersonLabelCreate,
+    PersonLabelOut,
+    PersonLabelUpdate,
     PeopleImportPreviewOut,
     PeopleImportResultOut,
     PeopleImportRowOut,
@@ -124,6 +129,15 @@ from app.security import authenticate_user, create_access_token, get_password_ha
 from app.services.bootstrap import bootstrap_company
 from app.services.company_wipe import wipe_company_data
 from app.services.excel_import import apply_people_import, parse_people_workbook
+from app.services.person_labels import (
+    MAX_PERSON_LABELS,
+    label_out,
+    load_company_labels,
+    parse_selection_mode,
+    person_label_values_out,
+    replace_label_options,
+    set_person_label_values,
+)
 from app.services.after import (
     after_count_map,
     build_after_preview,
@@ -185,6 +199,7 @@ def person_out(
         allowed_mission_type_ids=[
             row.mission_type_id for row in person.allowed_mission_types
         ],
+        label_values=person_label_values_out(person),
         role_name=person.role.name if person.role else None,
         after_count_30d=after_count_30d,
         last_after_end=last_after_end,
@@ -1083,6 +1098,136 @@ def delete_qualification(
     return {"ok": True}
 
 
+# ---------- person labels (תוויות) ----------
+
+@router.get("/person-labels", response_model=List[PersonLabelOut])
+def list_person_labels(
+    db: Session = Depends(get_db), user: User = Depends(get_current_user)
+):
+    return [label_out(lb) for lb in load_company_labels(db, user.company_id)]
+
+
+@router.post("/person-labels", response_model=PersonLabelOut)
+def create_person_label(
+    body: PersonLabelCreate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    existing = (
+        db.query(PersonLabel)
+        .filter(PersonLabel.company_id == user.company_id)
+        .count()
+    )
+    if existing >= MAX_PERSON_LABELS:
+        raise HTTPException(400, f"ניתן להגדיר עד {MAX_PERSON_LABELS} תוויות")
+    name = (body.name or "").strip()
+    if not name:
+        raise HTTPException(400, "שם תווית נדרש")
+    dup = (
+        db.query(PersonLabel)
+        .filter(PersonLabel.company_id == user.company_id, PersonLabel.name == name)
+        .first()
+    )
+    if dup:
+        raise HTTPException(400, "תווית בשם זה כבר קיימת")
+    mode = parse_selection_mode(body.selection_mode)
+    sort_order = (
+        body.sort_order
+        if body.sort_order is not None
+        else existing
+    )
+    label = PersonLabel(
+        company_id=user.company_id,
+        name=name,
+        selection_mode=mode,
+        sort_order=sort_order,
+        is_active=True,
+    )
+    db.add(label)
+    db.flush()
+    replace_label_options(db, label, body.options or [])
+    db.commit()
+    label = (
+        db.query(PersonLabel)
+        .options(joinedload(PersonLabel.options))
+        .filter(PersonLabel.id == label.id)
+        .one()
+    )
+    return label_out(label)
+
+
+@router.put("/person-labels/{label_id}", response_model=PersonLabelOut)
+def update_person_label(
+    label_id: int,
+    body: PersonLabelUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    label = (
+        db.query(PersonLabel)
+        .options(joinedload(PersonLabel.options))
+        .filter(PersonLabel.id == label_id, PersonLabel.company_id == user.company_id)
+        .first()
+    )
+    if not label:
+        raise HTTPException(404, "תווית לא נמצאה")
+    data = body.model_dump(exclude_unset=True)
+    if "name" in data and data["name"] is not None:
+        name = data["name"].strip()
+        if not name:
+            raise HTTPException(400, "שם תווית נדרש")
+        dup = (
+            db.query(PersonLabel)
+            .filter(
+                PersonLabel.company_id == user.company_id,
+                PersonLabel.name == name,
+                PersonLabel.id != label.id,
+            )
+            .first()
+        )
+        if dup:
+            raise HTTPException(400, "תווית בשם זה כבר קיימת")
+        label.name = name
+    if "selection_mode" in data and data["selection_mode"] is not None:
+        label.selection_mode = parse_selection_mode(data["selection_mode"])
+    if "sort_order" in data and data["sort_order"] is not None:
+        label.sort_order = int(data["sort_order"])
+    if "is_active" in data and data["is_active"] is not None:
+        label.is_active = bool(data["is_active"])
+    if "options" in data and body.options is not None:
+        replace_label_options(db, label, body.options)
+    db.commit()
+    label = (
+        db.query(PersonLabel)
+        .options(joinedload(PersonLabel.options))
+        .filter(PersonLabel.id == label.id)
+        .one()
+    )
+    return label_out(label)
+
+
+@router.delete("/person-labels/{label_id}")
+def delete_person_label(
+    label_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    label = (
+        db.query(PersonLabel)
+        .options(joinedload(PersonLabel.options))
+        .filter(PersonLabel.id == label_id, PersonLabel.company_id == user.company_id)
+        .first()
+    )
+    if not label:
+        raise HTTPException(404, "תווית לא נמצאה")
+    db.query(PersonLabelAssignment).filter(
+        PersonLabelAssignment.label_id == label.id
+    ).delete(synchronize_session=False)
+    db.delete(label)
+    db.commit()
+    return {"ok": True}
+
+
 # ---------- people ----------
 
 @router.get("/people", response_model=List[PersonOut])
@@ -1093,6 +1238,7 @@ def list_people(db: Session = Depends(get_db), user: User = Depends(get_current_
             joinedload(Person.qualifications),
             joinedload(Person.allowed_mission_types),
             joinedload(Person.role),
+            joinedload(Person.label_assignments).joinedload(PersonLabelAssignment.option),
         )
         .filter(Person.company_id == user.company_id)
         .order_by(Person.full_name)
@@ -1128,7 +1274,11 @@ async def preview_people_import(
     if not (name.endswith(".xlsx") or name.endswith(".xlsm")):
         raise HTTPException(400, "נא להעלות קובץ Excel ‏(.xlsx / .xlsm)")
     try:
-        parsed = parse_people_workbook(raw, preferred_sheet=sheet or None)
+        labels = load_company_labels(db, user.company_id)
+        label_names = [lb.name for lb in labels if lb.is_active]
+        parsed = parse_people_workbook(
+            raw, preferred_sheet=sheet or None, label_names=label_names
+        )
         rows, created, updated, skipped, _, _ = apply_people_import(
             db, user.company_id, parsed, commit=False
         )
@@ -1161,7 +1311,11 @@ async def commit_people_import(
     if not (name.endswith(".xlsx") or name.endswith(".xlsm")):
         raise HTTPException(400, "נא להעלות קובץ Excel ‏(.xlsx / .xlsm)")
     try:
-        parsed = parse_people_workbook(raw, preferred_sheet=sheet or None)
+        labels = load_company_labels(db, user.company_id)
+        label_names = [lb.name for lb in labels if lb.is_active]
+        parsed = parse_people_workbook(
+            raw, preferred_sheet=sheet or None, label_names=label_names
+        )
         _, created, updated, skipped, quals_created, warnings = apply_people_import(
             db, user.company_id, parsed, commit=True
         )
@@ -1202,6 +1356,13 @@ def create_person(
         db.add(
             PersonAllowedMissionType(person_id=person.id, mission_type_id=mt_id)
         )
+    if body.label_values:
+        set_person_label_values(
+            db,
+            person=person,
+            company_id=user.company_id,
+            label_values=body.label_values,
+        )
     db.commit()
     person = (
         db.query(Person)
@@ -1209,6 +1370,7 @@ def create_person(
             joinedload(Person.qualifications),
             joinedload(Person.allowed_mission_types),
             joinedload(Person.role),
+            joinedload(Person.label_assignments).joinedload(PersonLabelAssignment.option),
         )
         .filter(Person.id == person.id)
         .one()
@@ -1229,6 +1391,7 @@ def update_person(
             joinedload(Person.qualifications),
             joinedload(Person.allowed_mission_types),
             joinedload(Person.role),
+            joinedload(Person.label_assignments).joinedload(PersonLabelAssignment.option),
         )
         .filter(Person.id == person_id, Person.company_id == user.company_id)
         .first()
@@ -1263,6 +1426,13 @@ def update_person(
             db.add(
                 PersonAllowedMissionType(person_id=person.id, mission_type_id=mt_id)
             )
+    if "label_values" in data and body.label_values is not None:
+        set_person_label_values(
+            db,
+            person=person,
+            company_id=user.company_id,
+            label_values=body.label_values,
+        )
     db.commit()
     person = (
         db.query(Person)
@@ -1270,6 +1440,7 @@ def update_person(
             joinedload(Person.qualifications),
             joinedload(Person.allowed_mission_types),
             joinedload(Person.role),
+            joinedload(Person.label_assignments).joinedload(PersonLabelAssignment.option),
         )
         .filter(Person.id == person.id)
         .one()
@@ -1312,6 +1483,9 @@ def delete_person(
     ).delete(synchronize_session=False)
     db.query(PersonAllowedMissionType).filter(
         PersonAllowedMissionType.person_id == person.id
+    ).delete(synchronize_session=False)
+    db.query(PersonLabelAssignment).filter(
+        PersonLabelAssignment.person_id == person.id
     ).delete(synchronize_session=False)
     db.query(LeavePeriod).filter(LeavePeriod.person_id == person.id).delete(
         synchronize_session=False
