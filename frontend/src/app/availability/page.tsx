@@ -168,15 +168,8 @@ export default function AvailabilityPage() {
 
   return (
     <AppShell>
-      <header className="page-intro">
-        <h1>חופשות ומגבלות</h1>
-        <p>
-          מגבלות חד־פעמיות לפי טווח תאריכים, מגבלות רוטיניות, ופרגון אפטר לטיוטת
-          השיבוץ.
-        </p>
-        {error ? <div className="alert alert-danger">{error}</div> : null}
-        {ok ? <div className="alert alert-ok">{ok}</div> : null}
-      </header>
+      {error ? <div className="alert alert-danger">{error}</div> : null}
+      {ok ? <div className="alert alert-ok">{ok}</div> : null}
 
       <section className="page-section">
         <AfterGrantsAccordion />

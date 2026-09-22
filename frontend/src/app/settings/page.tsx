@@ -946,11 +946,8 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <header className="page-intro">
-        <h1>הגדרות</h1>
-        {error ? <div className="alert alert-danger">{error}</div> : null}
-        {ok ? <div className="alert alert-ok">{ok}</div> : null}
-      </header>
+      {error ? <div className="alert alert-danger">{error}</div> : null}
+      {ok ? <div className="alert alert-ok">{ok}</div> : null}
 
       <SettingsAccordion
         title="שיתוף צוות"

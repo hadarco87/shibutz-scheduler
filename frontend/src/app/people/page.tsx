@@ -927,13 +927,12 @@ export default function PeoplePage() {
 
   return (
     <AppShell>
-      <header className="page-intro">
-        <h1>כוח אדם</h1>
-        {error ? <div className="alert alert-danger">{error}</div> : null}
-        {importMessage ? (
-          <div className="alert">{importMessage}</div>
-        ) : null}
-      </header>
+      {error ? <div className="alert alert-danger">{error}</div> : null}
+      {importMessage ? (
+        <div className="alert" style={{ marginBottom: "0.75rem" }}>
+          {importMessage}
+        </div>
+      ) : null}
 
       <section className="panel panel-list">
         <details
