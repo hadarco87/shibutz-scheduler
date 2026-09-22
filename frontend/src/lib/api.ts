@@ -144,6 +144,21 @@ export const api = {
     request<Person>("/people", { method: "POST", body: JSON.stringify(body) }, token),
   updatePerson: (token: string, id: number, body: object) =>
     request<Person>(`/people/${id}`, { method: "PUT", body: JSON.stringify(body) }, token),
+  bulkUpdatePeople: (
+    token: string,
+    body: {
+      person_ids: number[];
+      role_id?: number;
+      add_qualification_ids?: number[];
+      remove_qualification_ids?: number[];
+      label_value?: { label_id: number; option_ids: number[] };
+    }
+  ) =>
+    request<{ updated: number }>(
+      "/people/bulk",
+      { method: "POST", body: JSON.stringify(body) },
+      token
+    ),
   deletePerson: (token: string, id: number) =>
     request(`/people/${id}`, { method: "DELETE" }, token),
   roles: (token: string) => request<Role[]>("/roles", {}, token),

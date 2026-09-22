@@ -100,6 +100,16 @@ export default function PeoplePage() {
   const [importMessage, setImportMessage] = useState("");
   const [importOpen, setImportOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set());
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkOk, setBulkOk] = useState("");
+  const [bulkDialog, setBulkDialog] = useState<
+    null | "role" | "qual-add" | "qual-remove" | "label"
+  >(null);
+  const [bulkRoleId, setBulkRoleId] = useState<number | "">("");
+  const [bulkQualId, setBulkQualId] = useState<number | "">("");
+  const [bulkLabelId, setBulkLabelId] = useState<number | "">("");
+  const [bulkLabelOptionIds, setBulkLabelOptionIds] = useState<number[]>([]);
 
   async function refresh() {
     if (!token) return;
@@ -299,6 +309,118 @@ export default function PeoplePage() {
       };
     });
   }
+
+  const selectedCount = selectedIds.size;
+  const allFilteredSelected =
+    filteredPeople.length > 0 &&
+    filteredPeople.every((p) => selectedIds.has(p.id));
+  const someFilteredSelected =
+    filteredPeople.some((p) => selectedIds.has(p.id)) && !allFilteredSelected;
+
+  function toggleSelectOne(id: number) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  function toggleSelectAllFiltered() {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (allFilteredSelected) {
+        for (const p of filteredPeople) next.delete(p.id);
+      } else {
+        for (const p of filteredPeople) next.add(p.id);
+      }
+      return next;
+    });
+  }
+
+  function clearSelection() {
+    setSelectedIds(new Set());
+  }
+
+  function openBulkDialog(kind: "role" | "qual-add" | "qual-remove" | "label") {
+    setBulkOk("");
+    setBulkRoleId(roles[0]?.id ?? "");
+    setBulkQualId(quals[0]?.id ?? "");
+    setBulkLabelId(personLabels[0]?.id ?? "");
+    setBulkLabelOptionIds([]);
+    setBulkDialog(kind);
+  }
+
+  function toggleBulkLabelOption(label: PersonLabel, optionId: number) {
+    setBulkLabelOptionIds((prev) => {
+      if (label.selection_mode === "multi") {
+        return prev.includes(optionId)
+          ? prev.filter((id) => id !== optionId)
+          : [...prev, optionId];
+      }
+      return prev.includes(optionId) ? [] : [optionId];
+    });
+  }
+
+  async function runBulkUpdate(
+    body: Parameters<typeof api.bulkUpdatePeople>[1]
+  ) {
+    if (!token || selectedCount === 0) return;
+    setBulkBusy(true);
+    setError("");
+    setBulkOk("");
+    try {
+      const res = await api.bulkUpdatePeople(token, {
+        ...body,
+        person_ids: Array.from(selectedIds),
+      });
+      setBulkOk(`עודכנו ${res.updated} אנשים`);
+      setBulkDialog(null);
+      clearSelection();
+      await refresh();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "עדכון מרוכז נכשל");
+    } finally {
+      setBulkBusy(false);
+    }
+  }
+
+  async function submitBulkDialog() {
+    if (!bulkDialog) return;
+    if (bulkDialog === "role") {
+      if (bulkRoleId === "") return;
+      await runBulkUpdate({ person_ids: [], role_id: Number(bulkRoleId) });
+      return;
+    }
+    if (bulkDialog === "qual-add") {
+      if (bulkQualId === "") return;
+      await runBulkUpdate({
+        person_ids: [],
+        add_qualification_ids: [Number(bulkQualId)],
+      });
+      return;
+    }
+    if (bulkDialog === "qual-remove") {
+      if (bulkQualId === "") return;
+      await runBulkUpdate({
+        person_ids: [],
+        remove_qualification_ids: [Number(bulkQualId)],
+      });
+      return;
+    }
+    if (bulkDialog === "label") {
+      if (bulkLabelId === "") return;
+      await runBulkUpdate({
+        person_ids: [],
+        label_value: {
+          label_id: Number(bulkLabelId),
+          option_ids: bulkLabelOptionIds,
+        },
+      });
+    }
+  }
+
+  const bulkLabel = personLabels.find((lb) => lb.id === bulkLabelId);
 
   function personLabelCell(p: Person, labelId: number) {
     const v = (p.label_values || []).find((x) => x.label_id === labelId);
@@ -1013,11 +1135,80 @@ export default function PeoplePage() {
           </div>
         </div>
 
+        {bulkOk ? (
+          <div className="alert alert-ok" style={{ marginBottom: "0.75rem" }}>
+            {bulkOk}
+          </div>
+        ) : null}
+
+        {selectedCount > 0 ? (
+          <div className="bulk-action-bar" role="region" aria-label="פעולות על נבחרים">
+            <span className="bulk-action-bar-count">נבחרו {selectedCount}</span>
+            <div className="bulk-action-bar-actions">
+              <button
+                className="btn btn-primary btn-small"
+                type="button"
+                disabled={bulkBusy || roles.length === 0}
+                onClick={() => openBulkDialog("role")}
+              >
+                שנה תפקיד
+              </button>
+              <button
+                className="btn btn-ghost btn-small"
+                type="button"
+                disabled={bulkBusy || quals.length === 0}
+                onClick={() => openBulkDialog("qual-add")}
+              >
+                הוסף פק״ל
+              </button>
+              <button
+                className="btn btn-ghost btn-small"
+                type="button"
+                disabled={bulkBusy || quals.length === 0}
+                onClick={() => openBulkDialog("qual-remove")}
+              >
+                הסר פק״ל
+              </button>
+              {personLabels.length > 0 ? (
+                <button
+                  className="btn btn-ghost btn-small"
+                  type="button"
+                  disabled={bulkBusy}
+                  onClick={() => openBulkDialog("label")}
+                >
+                  הגדר תווית
+                </button>
+              ) : null}
+            </div>
+            <div className="bulk-action-bar-spacer" />
+            <button
+              className="btn btn-ghost btn-small"
+              type="button"
+              disabled={bulkBusy}
+              onClick={clearSelection}
+            >
+              נקה בחירה
+            </button>
+          </div>
+        ) : null}
+
         {error ? <div className="alert alert-danger">{error}</div> : null}
 
         <table className="table">
           <thead>
             <tr>
+              <th className="col-select">
+                <input
+                  type="checkbox"
+                  checked={allFilteredSelected}
+                  ref={(el) => {
+                    if (el) el.indeterminate = someFilteredSelected;
+                  }}
+                  onChange={toggleSelectAllFiltered}
+                  aria-label="בחר את כל המוצגים"
+                  disabled={filteredPeople.length === 0}
+                />
+              </th>
               <th>שם</th>
               <th>מס׳ אישי</th>
               <th>תפקיד</th>
@@ -1035,7 +1226,7 @@ export default function PeoplePage() {
             {filteredPeople.length === 0 ? (
               <tr>
                 <td
-                  colSpan={8 + personLabels.length}
+                  colSpan={9 + personLabels.length}
                   style={{ color: "var(--ink-soft)" }}
                 >
                   אין תוצאות לפי הסינון הנוכחי
@@ -1044,7 +1235,19 @@ export default function PeoplePage() {
             ) : (
               filteredPeople.map((p) => (
                 <Fragment key={p.id}>
-                  <tr className={p.is_active ? undefined : "row-suspended"}>
+                  <tr
+                    className={`${p.is_active ? "" : "row-suspended"}${
+                      selectedIds.has(p.id) ? " is-selected" : ""
+                    }`.trim()}
+                  >
+                    <td className="col-select">
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(p.id)}
+                        onChange={() => toggleSelectOne(p.id)}
+                        aria-label={`בחר את ${p.full_name}`}
+                      />
+                    </td>
                     <td>
                       <strong>{p.full_name}</strong>
                       {!p.is_active ? (
@@ -1118,7 +1321,7 @@ export default function PeoplePage() {
                   </tr>
                   {editingId === p.id ? (
                     <tr className="person-inline-edit-row">
-                      <td colSpan={8 + personLabels.length}>
+                      <td colSpan={9 + personLabels.length}>
                         <form
                           className="form-grid person-form person-form-inline"
                           onSubmit={onSubmit}
@@ -1139,6 +1342,155 @@ export default function PeoplePage() {
           </tbody>
         </table>
       </section>
+
+      {bulkDialog ? (
+        <div
+          className="app-dialog-backdrop"
+          role="presentation"
+          onClick={() => !bulkBusy && setBulkDialog(null)}
+        >
+          <div
+            className="app-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="bulk-dialog-title"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h2 id="bulk-dialog-title" className="app-dialog-title">
+              {bulkDialog === "role"
+                ? "שנה תפקיד"
+                : bulkDialog === "qual-add"
+                  ? "הוסף פק״ל"
+                  : bulkDialog === "qual-remove"
+                    ? "הסר פק״ל"
+                    : "הגדר תווית"}
+            </h2>
+            <p className="app-dialog-message">
+              הפעולה תחול על <strong>{selectedCount}</strong> נבחרים.
+            </p>
+
+            {bulkDialog === "role" ? (
+              <div className="bulk-dialog-field">
+                <label htmlFor="bulk-role">תפקיד</label>
+                <select
+                  id="bulk-role"
+                  value={bulkRoleId}
+                  onChange={(e) =>
+                    setBulkRoleId(e.target.value ? Number(e.target.value) : "")
+                  }
+                >
+                  {roles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            {bulkDialog === "qual-add" || bulkDialog === "qual-remove" ? (
+              <div className="bulk-dialog-field">
+                <label htmlFor="bulk-qual">פק״ל</label>
+                <select
+                  id="bulk-qual"
+                  value={bulkQualId}
+                  onChange={(e) =>
+                    setBulkQualId(e.target.value ? Number(e.target.value) : "")
+                  }
+                >
+                  {quals.map((q) => (
+                    <option key={q.id} value={q.id}>
+                      {q.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
+
+            {bulkDialog === "label" ? (
+              <>
+                <div className="bulk-dialog-field">
+                  <label htmlFor="bulk-label">תווית</label>
+                  <select
+                    id="bulk-label"
+                    value={bulkLabelId}
+                    onChange={(e) => {
+                      setBulkLabelId(e.target.value ? Number(e.target.value) : "");
+                      setBulkLabelOptionIds([]);
+                    }}
+                  >
+                    {personLabels.map((lb) => (
+                      <option key={lb.id} value={lb.id}>
+                        {lb.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                {bulkLabel ? (
+                  <div className="bulk-dialog-field">
+                    <label>
+                      ערך
+                      <span className="field-optional">
+                        {bulkLabel.selection_mode === "multi"
+                          ? "בחירה מרובה"
+                          : "בחירה יחידה"}
+                      </span>
+                    </label>
+                    <div className="people-chips">
+                      {bulkLabel.options
+                        .filter((o) => o.is_active)
+                        .map((o) => (
+                          <button
+                            key={o.id}
+                            type="button"
+                            className={`chip ${
+                              bulkLabelOptionIds.includes(o.id) ? "manual" : ""
+                            }`}
+                            onClick={() => toggleBulkLabelOption(bulkLabel, o.id)}
+                          >
+                            {o.name}
+                          </button>
+                        ))}
+                    </div>
+                    <button
+                      className="btn btn-ghost btn-small"
+                      type="button"
+                      onClick={() => setBulkLabelOptionIds([])}
+                    >
+                      נקה ערך (הסר תווית מהנבחרים)
+                    </button>
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+
+            <div className="app-dialog-actions">
+              <button
+                className="btn btn-ghost"
+                type="button"
+                disabled={bulkBusy}
+                onClick={() => setBulkDialog(null)}
+              >
+                ביטול
+              </button>
+              <button
+                className="btn btn-primary"
+                type="button"
+                disabled={
+                  bulkBusy ||
+                  (bulkDialog === "role" && bulkRoleId === "") ||
+                  ((bulkDialog === "qual-add" || bulkDialog === "qual-remove") &&
+                    bulkQualId === "") ||
+                  (bulkDialog === "label" && bulkLabelId === "")
+                }
+                onClick={() => void submitBulkDialog()}
+              >
+                {bulkBusy ? "מעדכן…" : "החל על הנבחרים"}
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </AppShell>
   );
 }

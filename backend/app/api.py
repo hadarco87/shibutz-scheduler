@@ -89,6 +89,8 @@ from app.schemas import (
     PersonCreate,
     PersonOut,
     PersonUpdate,
+    PeopleBulkUpdate,
+    PeopleBulkUpdateOut,
     PersonLabelCreate,
     PersonLabelOut,
     PersonLabelUpdate,
@@ -136,6 +138,7 @@ from app.services.person_labels import (
     parse_selection_mode,
     person_label_values_out,
     replace_label_options,
+    set_one_label_for_person,
     set_person_label_values,
 )
 from app.services.after import (
@@ -1258,6 +1261,90 @@ def list_people(db: Session = Depends(get_db), user: User = Depends(get_current_
     return [
         person_out(p, counts.get(p.id, 0), last_ends.get(p.id)) for p in people
     ]
+
+
+@router.post("/people/bulk", response_model=PeopleBulkUpdateOut)
+def bulk_update_people(
+    body: PeopleBulkUpdate,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_commander),
+):
+    ids = list(dict.fromkeys(body.person_ids or []))
+    if not ids:
+        raise HTTPException(400, "לא נבחרו אנשים")
+    has_action = any(
+        [
+            body.role_id is not None,
+            body.add_qualification_ids,
+            body.remove_qualification_ids,
+            body.label_value is not None,
+        ]
+    )
+    if not has_action:
+        raise HTTPException(400, "לא נבחרה פעולת עדכון")
+
+    people = (
+        db.query(Person)
+        .options(joinedload(Person.qualifications))
+        .filter(Person.id.in_(ids), Person.company_id == user.company_id)
+        .all()
+    )
+    if len(people) != len(ids):
+        raise HTTPException(404, "חלק מהאנשים לא נמצאו בפלוגה")
+
+    if body.role_id is not None:
+        role = (
+            db.query(Role)
+            .filter(Role.id == body.role_id, Role.company_id == user.company_id)
+            .first()
+        )
+        if not role:
+            raise HTTPException(400, "תפקיד לא נמצא")
+        for p in people:
+            p.role_id = body.role_id
+
+    add_q = list(dict.fromkeys(body.add_qualification_ids or []))
+    rem_q = list(dict.fromkeys(body.remove_qualification_ids or []))
+    if add_q or rem_q:
+        valid_q = {
+            q.id
+            for q in db.query(Qualification)
+            .filter(
+                Qualification.company_id == user.company_id,
+                Qualification.id.in_(add_q + rem_q),
+            )
+            .all()
+        }
+        for qid in add_q + rem_q:
+            if qid not in valid_q:
+                raise HTTPException(400, f"פק״ל {qid} לא נמצא")
+        for p in people:
+            existing = {pq.qualification_id for pq in p.qualifications}
+            if rem_q:
+                db.query(PersonQualification).filter(
+                    PersonQualification.person_id == p.id,
+                    PersonQualification.qualification_id.in_(rem_q),
+                ).delete(synchronize_session=False)
+                existing -= set(rem_q)
+            for qid in add_q:
+                if qid not in existing:
+                    db.add(
+                        PersonQualification(person_id=p.id, qualification_id=qid)
+                    )
+                    existing.add(qid)
+
+    if body.label_value is not None:
+        for p in people:
+            set_one_label_for_person(
+                db,
+                person=p,
+                company_id=user.company_id,
+                label_id=body.label_value.label_id,
+                option_ids=body.label_value.option_ids,
+            )
+
+    db.commit()
+    return PeopleBulkUpdateOut(updated=len(people))
 
 
 @router.post("/people/import/preview", response_model=PeopleImportPreviewOut)

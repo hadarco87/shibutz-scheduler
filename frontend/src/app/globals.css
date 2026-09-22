@@ -1413,6 +1413,76 @@ button.chip.active {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+}
+
+.bulk-action-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+  padding: 0.65rem 0.75rem;
+  background: #f3f6f1;
+  border: 1px solid rgba(61, 90, 54, 0.28);
+  border-radius: 12px;
+}
+
+.bulk-action-bar-count {
+  font-weight: 600;
+  color: var(--ink);
+  margin-inline-end: 0.25rem;
+}
+
+.bulk-action-bar-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  align-items: center;
+}
+
+.bulk-action-bar-spacer {
+  flex: 1 1 auto;
+}
+
+.table th.col-select,
+.table td.col-select {
+  width: 2.25rem;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.table td.col-select input,
+.table th.col-select input {
+  width: 1rem;
+  height: 1rem;
+  cursor: pointer;
+}
+
+.table tr.is-selected {
+  background: rgba(61, 90, 54, 0.06);
+}
+
+.bulk-dialog-field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.75rem 0;
+}
+
+.bulk-dialog-field label {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
+}
+
+.bulk-dialog-field select {
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 0.45rem 0.6rem;
+  background: #fff;
+}
+  gap: 0.45rem;
   color: var(--ink-soft);
   font-size: 0.85rem;
   white-space: nowrap;

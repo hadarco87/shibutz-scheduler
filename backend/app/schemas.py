@@ -206,6 +206,18 @@ class PersonUpdate(BaseModel):
     label_values: Optional[List[PersonLabelValueIn]] = None
 
 
+class PeopleBulkUpdate(BaseModel):
+    person_ids: List[int] = Field(min_length=1)
+    role_id: Optional[int] = None
+    add_qualification_ids: Optional[List[int]] = None
+    remove_qualification_ids: Optional[List[int]] = None
+    label_value: Optional[PersonLabelValueIn] = None
+
+
+class PeopleBulkUpdateOut(BaseModel):
+    updated: int
+
+
 class PersonOut(ORMModel):
     id: int
     company_id: int

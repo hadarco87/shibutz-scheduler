@@ -120,6 +120,43 @@ def set_person_label_values(
             )
 
 
+def set_one_label_for_person(
+    db: Session,
+    *,
+    person: Person,
+    company_id: int,
+    label_id: int,
+    option_ids: Sequence[int],
+) -> None:
+    """Replace assignments for a single label; leave other labels untouched."""
+    labels = {lb.id: lb for lb in load_company_labels(db, company_id)}
+    label = labels.get(label_id)
+    if not label or not label.is_active:
+        raise HTTPException(400, f"תווית {label_id} לא נמצאה")
+    ids = list(dict.fromkeys(option_ids or []))
+    if (
+        label.selection_mode == LabelSelectionMode.SINGLE
+        or str(label.selection_mode) == "single"
+    ) and len(ids) > 1:
+        raise HTTPException(400, f"התווית «{label.name}» מאפשרת בחירה יחידה בלבד")
+    valid = {o.id: o for o in label.options if o.is_active}
+    for oid in ids:
+        if oid not in valid:
+            raise HTTPException(400, f"ערך תווית {oid} לא שייך ל«{label.name}»")
+    db.query(PersonLabelAssignment).filter(
+        PersonLabelAssignment.person_id == person.id,
+        PersonLabelAssignment.label_id == label.id,
+    ).delete(synchronize_session=False)
+    for oid in ids:
+        db.add(
+            PersonLabelAssignment(
+                person_id=person.id,
+                label_id=label.id,
+                option_id=oid,
+            )
+        )
+
+
 def get_or_create_option(
     db: Session,
     label: PersonLabel,
