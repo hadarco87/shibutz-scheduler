@@ -1290,7 +1290,9 @@ export default function PeoplePage() {
               ))}
               <th className="col-quals">פק״לים</th>
               <th className="col-missions">משימות מותרות</th>
-              <th className="col-after">אפטר (30 ימים)</th>
+              <th className="col-after" title="אפטר ב־30 הימים האחרונים">
+                אפטר
+              </th>
               <th className="col-availability">חופשות ומגבלות</th>
               <th className="col-actions" />
             </tr>
