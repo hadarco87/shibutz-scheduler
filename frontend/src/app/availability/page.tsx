@@ -168,79 +168,93 @@ export default function AvailabilityPage() {
 
   return (
     <AppShell>
-      <section className="panel">
-        <h1 style={{ marginTop: 0 }}>חופשות ומגבלות</h1>
-        <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+      <header className="page-intro">
+        <h1>חופשות ומגבלות</h1>
+        <p>
           מגבלות חד־פעמיות לפי טווח תאריכים, מגבלות רוטיניות, ופרגון אפטר לטיוטת
           השיבוץ.
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {ok ? <div className="alert alert-ok">{ok}</div> : null}
-      </section>
+      </header>
 
-      <AfterGrantsAccordion />
+      <section className="page-section" aria-labelledby="avail-add-heading">
+        <h2 id="avail-add-heading" className="page-section-label">
+          הוספה ועריכה
+        </h2>
+        <p className="page-section-desc">
+          כאן מוסיפים ומגדירים — לחצו על חלונית כדי לפתוח אותה.
+        </p>
 
-      <SettingsAccordion
-        title="חופשה / מגבלה חד־פעמית"
-        hint="טווח תאריכים חד־פעמי לחייל"
-      >
-        <div className="form-grid" style={{ maxWidth: 560 }}>
-          <label>
-            חייל
-            <select
-              value={personId}
-              onChange={(e) => setPersonId(Number(e.target.value))}
-            >
-              {people.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.full_name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label>
-            התחלה
-            <input
-              type="datetime-local"
-              value={start}
-              onChange={(e) => setStart(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            סיום
-            <input
-              type="datetime-local"
-              value={end}
-              onChange={(e) => setEnd(e.target.value)}
-              required
-            />
-          </label>
-          <label>
-            הערות
-            <input value={notes} onChange={(e) => setNotes(e.target.value)} />
-          </label>
-          <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
-            <button className="btn btn-primary" type="button" onClick={addLeave}>
-              הוסף חופשה
-            </button>
-            <input
-              value={restrictionType}
-              onChange={(e) => setRestrictionType(e.target.value)}
-              style={{ maxWidth: 160 }}
-              placeholder="סוג מגבלה"
-            />
-            <button className="btn btn-accent" type="button" onClick={addRestriction}>
-              הוסף מגבלה חד־פעמית
-            </button>
+        <AfterGrantsAccordion />
+
+        <SettingsAccordion
+          title="חופשה / מגבלה חד־פעמית"
+          badge="הוספה"
+          hint="טווח תאריכים חד־פעמי לחייל"
+        >
+          <div className="form-grid" style={{ maxWidth: 560 }}>
+            <label>
+              חייל
+              <select
+                value={personId}
+                onChange={(e) => setPersonId(Number(e.target.value))}
+              >
+                {people.map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.full_name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              התחלה
+              <input
+                type="datetime-local"
+                value={start}
+                onChange={(e) => setStart(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              סיום
+              <input
+                type="datetime-local"
+                value={end}
+                onChange={(e) => setEnd(e.target.value)}
+                required
+              />
+            </label>
+            <label>
+              הערות
+              <input value={notes} onChange={(e) => setNotes(e.target.value)} />
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem", flexWrap: "wrap" }}>
+              <button className="btn btn-primary" type="button" onClick={addLeave}>
+                הוסף חופשה
+              </button>
+              <input
+                value={restrictionType}
+                onChange={(e) => setRestrictionType(e.target.value)}
+                style={{ maxWidth: 160 }}
+                placeholder="סוג מגבלה"
+              />
+              <button
+                className="btn btn-accent"
+                type="button"
+                onClick={addRestriction}
+              >
+                הוסף מגבלה חד־פעמית
+              </button>
+            </div>
           </div>
-        </div>
-      </SettingsAccordion>
+        </SettingsAccordion>
 
-      <SettingsAccordion
-        title="מגבלה רוטינית"
-        hint="חוזרת לפי יום / שבוע / מחזור"
-      >
+        <SettingsAccordion
+          title="מגבלה רוטינית"
+          badge="הוספה"
+          hint="חוזרת לפי יום / שבוע / מחזור"
+        >
         <form className="form-grid" onSubmit={addRecurring} style={{ maxWidth: 560 }}>
           <label>
             חייל
@@ -372,8 +386,17 @@ export default function AvailabilityPage() {
           </button>
         </form>
       </SettingsAccordion>
+      </section>
 
-      <section className="panel">
+      <section className="page-section" aria-labelledby="avail-list-heading">
+        <h2 id="avail-list-heading" className="page-section-label">
+          רשימות
+        </h2>
+        <p className="page-section-desc">
+          תצוגה של רשומות קיימות — אפשר למחוק מכאן.
+        </p>
+
+      <section className="panel panel-list">
         <h2 style={{ marginTop: 0 }}>חופשות</h2>
         <table className="table">
           <thead>
@@ -422,7 +445,7 @@ export default function AvailabilityPage() {
         </table>
       </section>
 
-      <section className="panel">
+      <section className="panel panel-list">
         <h2 style={{ marginTop: 0 }}>מגבלות חד־פעמיות</h2>
         <table className="table">
           <thead>
@@ -473,7 +496,7 @@ export default function AvailabilityPage() {
         </table>
       </section>
 
-      <section className="panel">
+      <section className="panel panel-list">
         <h2 style={{ marginTop: 0 }}>מגבלות רוטיניות</h2>
         <table className="table">
           <thead>
@@ -527,6 +550,7 @@ export default function AvailabilityPage() {
             })}
           </tbody>
         </table>
+      </section>
       </section>
     </AppShell>
   );

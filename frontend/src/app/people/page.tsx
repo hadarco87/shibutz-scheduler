@@ -1280,21 +1280,23 @@ export default function PeoplePage() {
 
         {error ? <div className="alert alert-danger">{error}</div> : null}
 
-        <table className="table">
+        <table className="table people-table">
           <thead>
             <tr>
               <th className="col-select" aria-label="בחירה" />
-              <th>שם</th>
-              <th>מס׳ אישי</th>
-              <th>תפקיד</th>
+              <th className="col-name">שם</th>
+              <th className="col-id">מס׳ אישי</th>
+              <th className="col-role">תפקיד</th>
               {personLabels.map((lb) => (
-                <th key={lb.id}>{lb.name}</th>
+                <th key={lb.id} className="col-label">
+                  {lb.name}
+                </th>
               ))}
-              <th>פק״לים</th>
-              <th>משימות מותרות</th>
-              <th>אפטר (30 ימים)</th>
-              <th>חופשות ומגבלות</th>
-              <th></th>
+              <th className="col-quals">פק״לים</th>
+              <th className="col-missions">משימות מותרות</th>
+              <th className="col-after">אפטר (30 ימים)</th>
+              <th className="col-availability">חופשות ומגבלות</th>
+              <th className="col-actions" />
             </tr>
           </thead>
           <tbody>
@@ -1323,7 +1325,7 @@ export default function PeoplePage() {
                         aria-label={`בחר את ${p.full_name}`}
                       />
                     </td>
-                    <td>
+                    <td className="col-name">
                       <strong>{p.full_name}</strong>
                       {!p.is_active ? (
                         <span className="status-pill status-suspended">מושעה</span>
@@ -1345,18 +1347,20 @@ export default function PeoplePage() {
                         </div>
                       ) : null}
                     </td>
-                    <td>{p.personal_number || "—"}</td>
-                    <td>{p.role_name}</td>
+                    <td className="col-id">{p.personal_number || "—"}</td>
+                    <td className="col-role">{p.role_name}</td>
                     {personLabels.map((lb) => (
-                      <td key={lb.id}>{personLabelCell(p, lb.id)}</td>
+                      <td key={lb.id} className="col-label">
+                        {personLabelCell(p, lb.id)}
+                      </td>
                     ))}
-                    <td>
+                    <td className="col-quals">
                       {p.qualification_ids
                         .map((id) => quals.find((q) => q.id === id)?.name)
                         .filter(Boolean)
                         .join(", ") || "—"}
                     </td>
-                    <td>
+                    <td className="col-missions">
                       {(p.allowed_mission_type_ids || []).length === 0
                         ? "הכל"
                         : p.allowed_mission_type_ids
@@ -1364,9 +1368,9 @@ export default function PeoplePage() {
                             .filter(Boolean)
                             .join(", ")}
                     </td>
-                    <td>{p.after_count_30d || 0}</td>
-                    <td>{renderAvailability(p.id)}</td>
-                    <td>
+                    <td className="col-after">{p.after_count_30d || 0}</td>
+                    <td className="col-availability">{renderAvailability(p.id)}</td>
+                    <td className="col-actions">
                       <div className="row-actions">
                         <button
                           className={`btn btn-ghost btn-icon${
@@ -1374,7 +1378,7 @@ export default function PeoplePage() {
                           }`}
                           type="button"
                           onClick={() => startEdit(p)}
-                          title={editingId === p.id ? "סגור עריכה" : "עריכה"}
+                          data-tip={editingId === p.id ? "סגור עריכה" : "עריכה"}
                           aria-label={
                             editingId === p.id ? "סגור עריכה" : "עריכה"
                           }
@@ -1385,7 +1389,7 @@ export default function PeoplePage() {
                           className="btn btn-ghost btn-icon"
                           type="button"
                           onClick={() => toggleSuspend(p)}
-                          title={p.is_active ? "השהה" : "הפעל מחדש"}
+                          data-tip={p.is_active ? "השהה" : "הפעל מחדש"}
                           aria-label={p.is_active ? "השהה" : "הפעל מחדש"}
                         >
                           {p.is_active ? <IconPause /> : <IconPlay />}
@@ -1394,7 +1398,7 @@ export default function PeoplePage() {
                           className="btn btn-danger-ghost btn-icon"
                           type="button"
                           onClick={() => deletePerson(p)}
-                          title="מחק"
+                          data-tip="מחק"
                           aria-label="מחק"
                         >
                           <IconTrash />

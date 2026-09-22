@@ -201,6 +201,7 @@ export function AfterGrantsAccordion() {
   return (
     <SettingsAccordion
       title="אפטר — פרגון יציאות"
+      badge="פעולה"
       hint={
         ready
           ? `מכסה ${afterPreview.after_quota} · ${windowLabel || "טיוטה"}`

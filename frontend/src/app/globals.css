@@ -135,6 +135,86 @@ textarea {
   margin-top: 1rem;
 }
 
+.page-intro {
+  margin: 0 0 1.35rem;
+}
+
+.page-intro h1 {
+  margin: 0 0 0.35rem;
+  font-size: 1.65rem;
+  font-weight: 700;
+  color: var(--ink);
+}
+
+.page-intro p {
+  margin: 0;
+  max-width: 42rem;
+  color: var(--ink-soft);
+  line-height: 1.45;
+}
+
+.page-intro .alert {
+  margin-top: 0.85rem;
+}
+
+.page-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  margin-bottom: 1.85rem;
+}
+
+.page-section > .panel,
+.page-section > .settings-accordion {
+  margin-top: 0;
+}
+
+.page-section-label {
+  margin: 0;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--olive-deep);
+  letter-spacing: 0.02em;
+}
+
+.page-section-desc {
+  margin: -0.25rem 0 0.15rem;
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  line-height: 1.4;
+}
+
+.panel-list {
+  box-shadow: none;
+  background: rgba(255, 255, 255, 0.62);
+  border-style: solid;
+  border-color: rgba(44, 63, 35, 0.12);
+}
+
+.panel-list > h2 {
+  font-size: 1.05rem;
+  font-weight: 650;
+  color: var(--ink);
+}
+
+.panel-action {
+  border-color: rgba(61, 90, 54, 0.22);
+  box-shadow: 0 8px 22px rgba(28, 36, 24, 0.06);
+}
+
+.settings-accordion-badge {
+  display: inline-block;
+  align-self: flex-start;
+  margin-bottom: 0.15rem;
+  padding: 0.12rem 0.45rem;
+  border-radius: 999px;
+  background: rgba(61, 90, 54, 0.12);
+  color: var(--olive-deep);
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+
 .hero-actions {
   display: flex;
   flex-wrap: wrap;
@@ -1517,6 +1597,7 @@ button.chip.active {
 }
 
 .btn.btn-icon {
+  position: relative;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1531,6 +1612,105 @@ button.chip.active {
 .btn.btn-icon.is-active-action {
   border-color: rgba(61, 90, 54, 0.45);
   background: rgba(61, 90, 54, 0.08);
+}
+
+/* Instant hover tip — native title= is delayed by the browser */
+.btn.btn-icon[data-tip]::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 0.28rem 0.5rem;
+  border-radius: 6px;
+  background: #2c3f23;
+  color: #f7f4ec;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  visibility: hidden;
+  z-index: 6;
+  box-shadow: 0 4px 12px rgba(44, 63, 35, 0.25);
+}
+
+.btn.btn-icon[data-tip]:hover::after,
+.btn.btn-icon[data-tip]:focus-visible::after {
+  opacity: 1;
+  visibility: visible;
+}
+
+.people-table {
+  table-layout: fixed;
+  width: 100%;
+}
+
+.people-table th,
+.people-table td {
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.people-table .col-select {
+  width: 2.2rem;
+}
+
+.people-table .col-name {
+  width: 14%;
+}
+
+.people-table .col-id {
+  width: 6.5rem;
+  white-space: nowrap;
+}
+
+.people-table .col-role {
+  width: 5.5rem;
+}
+
+.people-table .col-label {
+  width: 7%;
+}
+
+.people-table .col-quals {
+  width: 12%;
+}
+
+.people-table .col-missions {
+  width: 11%;
+}
+
+.people-table .col-after {
+  width: 4.5rem;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.people-table .col-availability {
+  width: 22%;
+}
+
+.people-table .col-actions {
+  width: 6.75rem;
+  padding-inline: 0.25rem;
+  overflow: visible;
+}
+
+.people-table td.col-actions {
+  position: relative;
+  z-index: 1;
+}
+
+.people-table td.col-actions:hover,
+.people-table td.col-actions:focus-within {
+  z-index: 3;
+}
+
+.people-table .col-actions .row-actions {
+  width: 100%;
+  justify-content: flex-end;
 }
 
 .btn-danger-ghost {
