@@ -52,6 +52,12 @@ function recurringKindLabel(
   return kind;
 }
 
+function isPastEnd(endAt: string | null | undefined) {
+  if (!endAt) return false;
+  const t = new Date(endAt).getTime();
+  return Number.isFinite(t) && t < Date.now();
+}
+
 export default function PeoplePage() {
   const { token } = useAuth();
   const confirm = useConfirm();
@@ -155,9 +161,19 @@ export default function PeoplePage() {
       }
       return map.get(id)!;
     };
-    for (const item of leave) ensure(item.person_id).leaves.push(item);
-    for (const item of restrictions) ensure(item.person_id).restrictions.push(item);
-    for (const item of recurring) ensure(item.person_id).recurring.push(item);
+    for (const item of leave) {
+      if (isPastEnd(item.end_at)) continue;
+      ensure(item.person_id).leaves.push(item);
+    }
+    for (const item of restrictions) {
+      if (isPastEnd(item.end_at)) continue;
+      ensure(item.person_id).restrictions.push(item);
+    }
+    for (const item of recurring) {
+      if (!item.is_active) continue;
+      if (isPastEnd(item.active_until)) continue;
+      ensure(item.person_id).recurring.push(item);
+    }
     return map;
   }, [leave, restrictions, recurring]);
 
