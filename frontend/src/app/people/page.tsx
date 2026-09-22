@@ -929,10 +929,6 @@ export default function PeoplePage() {
     <AppShell>
       <header className="page-intro">
         <h1>כוח אדם</h1>
-        <p>
-          אם לא בוחרים סוגי משימות מותרים — החייל יכול לכל המשימות.
-          אם בוחרים — הוא מורשה רק לסוגים שנבחרו (לדוגמה רק ש״ג).
-        </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {importMessage ? (
           <div className="alert">{importMessage}</div>

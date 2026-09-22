@@ -948,10 +948,6 @@ export default function SettingsPage() {
     <AppShell>
       <header className="page-intro">
         <h1>הגדרות</h1>
-        <p>
-          תפקידים, פק״לים, תוויות וקטלוג סוגי משימות. בחירת משימות לחלון נעשית במסך
-          השיבוץ.
-        </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {ok ? <div className="alert alert-ok">{ok}</div> : null}
       </header>
