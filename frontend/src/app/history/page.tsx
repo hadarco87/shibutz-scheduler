@@ -113,14 +113,16 @@ export default function HistoryPage() {
 
   return (
     <AppShell>
-      <section className="panel">
-        <h1 style={{ marginTop: 0 }}>היסטוריית שיבוצים</h1>
-        <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+      <header className="page-intro">
+        <h1>היסטוריית שיבוצים</h1>
+        <p>
           שעות משימה משובצות לפי חייל וסוג משימה — רק משיבוצים שפורסמו.
           שונה ממדד עומס (שמכפיל בקושי).
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
+      </header>
 
+      <section className="panel panel-list">
         <div className="filter-bar" role="search" aria-label="סינון היסטוריה">
           <input
             className="filter-bar-search"

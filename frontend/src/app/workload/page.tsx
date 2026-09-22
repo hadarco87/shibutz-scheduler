@@ -48,15 +48,15 @@ export default function WorkloadPage() {
 
   return (
     <AppShell>
-      <section className="panel">
-        <h1 style={{ marginTop: 0 }}>מדד עומס</h1>
-        <p style={{ color: "var(--ink-soft)" }}>
+      <header className="page-intro">
+        <h1>מדד עומס</h1>
+        <p>
           מדד העומס = קושי המשימה × שעות שירות.
           מבוסס רק על שיבוצים שפורסמו — טיוטות לא משפיעות.
           מעל שם כל משימה מופיע הקושי שלה (למשל 4/5).
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
-      </section>
+      </header>
 
       <section className="panel">
         <table className="table">

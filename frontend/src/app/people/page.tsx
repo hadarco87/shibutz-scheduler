@@ -927,19 +927,19 @@ export default function PeoplePage() {
 
   return (
     <AppShell>
-      <section className="panel">
-        <h1 style={{ marginTop: 0 }}>כוח אדם</h1>
-        <p style={{ color: "var(--ink-soft)", marginTop: 0 }}>
+      <header className="page-intro">
+        <h1>כוח אדם</h1>
+        <p>
           אם לא בוחרים סוגי משימות מותרים — החייל יכול לכל המשימות.
           אם בוחרים — הוא מורשה רק לסוגים שנבחרו (לדוגמה רק ש״ג).
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {importMessage ? (
-          <div className="alert" style={{ marginBottom: "0.75rem" }}>
-            {importMessage}
-          </div>
+          <div className="alert">{importMessage}</div>
         ) : null}
+      </header>
 
+      <section className="panel panel-list">
         <details
           className="import-details"
           open={importOpen}

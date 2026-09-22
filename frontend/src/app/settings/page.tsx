@@ -946,15 +946,15 @@ export default function SettingsPage() {
 
   return (
     <AppShell>
-      <section className="panel">
-        <h1 style={{ marginTop: 0 }}>הגדרות</h1>
-        <p style={{ color: "var(--ink-soft)" }}>
+      <header className="page-intro">
+        <h1>הגדרות</h1>
+        <p>
           תפקידים, פק״לים, תוויות וקטלוג סוגי משימות. בחירת משימות לחלון נעשית במסך
           השיבוץ.
         </p>
         {error ? <div className="alert alert-danger">{error}</div> : null}
         {ok ? <div className="alert alert-ok">{ok}</div> : null}
-      </section>
+      </header>
 
       <SettingsAccordion
         title="שיתוף צוות"
