@@ -52,6 +52,69 @@ function recurringKindLabel(
   return kind;
 }
 
+function IconEdit({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M12 20h9"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+      <path
+        d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
+function IconClose({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M6 6l12 12M18 6L6 18"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+      />
+    </svg>
+  );
+}
+
+function IconPause({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <rect x="6" y="5" width="4" height="14" rx="1" fill="currentColor" />
+      <rect x="14" y="5" width="4" height="14" rx="1" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconPlay({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path d="M8 5v14l11-7L8 5z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function IconTrash({ size = 16 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" aria-hidden>
+      <path
+        d="M4 7h16M9 7V5h6v2M8 7l1 12h6l1-12"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  );
+}
+
 function isPastEnd(endAt: string | null | undefined) {
   if (!endAt) return false;
   const t = new Date(endAt).getTime();
@@ -330,8 +393,6 @@ export default function PeoplePage() {
   const allFilteredSelected =
     filteredPeople.length > 0 &&
     filteredPeople.every((p) => selectedIds.has(p.id));
-  const someFilteredSelected =
-    filteredPeople.some((p) => selectedIds.has(p.id)) && !allFilteredSelected;
 
   function toggleSelectOne(id: number) {
     setSelectedIds((prev) => {
@@ -1139,6 +1200,15 @@ export default function PeoplePage() {
                 ? people.length
                 : people.length - suspendedCount}
             </span>
+            {filteredPeople.length > 0 ? (
+              <button
+                className="btn btn-ghost btn-small"
+                type="button"
+                onClick={toggleSelectAllFiltered}
+              >
+                {allFilteredSelected ? "בטל בחירת מוצגים" : "בחר את כל המוצגים"}
+              </button>
+            ) : null}
             {filtersActive ? (
               <button
                 className="btn btn-ghost btn-small"
@@ -1213,18 +1283,7 @@ export default function PeoplePage() {
         <table className="table">
           <thead>
             <tr>
-              <th className="col-select">
-                <input
-                  type="checkbox"
-                  checked={allFilteredSelected}
-                  ref={(el) => {
-                    if (el) el.indeterminate = someFilteredSelected;
-                  }}
-                  onChange={toggleSelectAllFiltered}
-                  aria-label="בחר את כל המוצגים"
-                  disabled={filteredPeople.length === 0}
-                />
-              </th>
+              <th className="col-select" aria-label="בחירה" />
               <th>שם</th>
               <th>מס׳ אישי</th>
               <th>תפקיד</th>
@@ -1310,27 +1369,35 @@ export default function PeoplePage() {
                     <td>
                       <div className="row-actions">
                         <button
-                          className={`btn btn-ghost btn-small${
+                          className={`btn btn-ghost btn-icon${
                             editingId === p.id ? " is-active-action" : ""
                           }`}
                           type="button"
                           onClick={() => startEdit(p)}
+                          title={editingId === p.id ? "סגור עריכה" : "עריכה"}
+                          aria-label={
+                            editingId === p.id ? "סגור עריכה" : "עריכה"
+                          }
                         >
-                          {editingId === p.id ? "סגור" : "עריכה"}
+                          {editingId === p.id ? <IconClose /> : <IconEdit />}
                         </button>
                         <button
-                          className="btn btn-ghost btn-small"
+                          className="btn btn-ghost btn-icon"
                           type="button"
                           onClick={() => toggleSuspend(p)}
+                          title={p.is_active ? "השהה" : "הפעל מחדש"}
+                          aria-label={p.is_active ? "השהה" : "הפעל מחדש"}
                         >
-                          {p.is_active ? "השהה" : "הפעל"}
+                          {p.is_active ? <IconPause /> : <IconPlay />}
                         </button>
                         <button
-                          className="btn btn-danger-ghost btn-small"
+                          className="btn btn-danger-ghost btn-icon"
                           type="button"
                           onClick={() => deletePerson(p)}
+                          title="מחק"
+                          aria-label="מחק"
                         >
-                          מחק
+                          <IconTrash />
                         </button>
                       </div>
                     </td>
