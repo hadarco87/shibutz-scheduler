@@ -2290,6 +2290,41 @@ button.chip.active {
   overflow: hidden;
 }
 
+.pilot-banner--pending {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.pilot-banner--collapsed {
+  justify-content: flex-start;
+  /* Physical left even in RTL chrome */
+  direction: ltr;
+  min-height: 1.35rem;
+  height: 1.35rem;
+  padding: 0 0.35rem;
+  background: transparent;
+}
+
+.pilot-banner-chip {
+  appearance: none;
+  border: 0;
+  margin: 0;
+  padding: 0.12rem 0.4rem;
+  border-radius: 4px;
+  background: rgba(63, 90, 50, 0.12);
+  color: var(--olive-deep);
+  font: inherit;
+  font-size: 0.68rem;
+  font-weight: 650;
+  line-height: 1;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.pilot-banner-chip:hover {
+  background: rgba(63, 90, 50, 0.2);
+}
+
 .pilot-banner-line {
   display: flex;
   align-items: center;

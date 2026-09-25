@@ -6,30 +6,59 @@ import { feedbackMailto, whatsappPilotMessage } from "@/lib/pilot";
 const STORAGE_KEY = "shibutz_pilot_banner_dismissed";
 
 export function PilotBanner() {
-  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState(true);
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     try {
-      if (localStorage.getItem(STORAGE_KEY) !== "1") setOpen(true);
+      setExpanded(localStorage.getItem(STORAGE_KEY) !== "1");
     } catch {
-      setOpen(true);
+      setExpanded(true);
     }
+    setReady(true);
   }, []);
 
-  if (!open) return null;
-
-  function dismiss() {
+  function collapse() {
     try {
       localStorage.setItem(STORAGE_KEY, "1");
     } catch {
       /* ignore */
     }
-    setOpen(false);
+    setExpanded(false);
+  }
+
+  function expand() {
+    try {
+      localStorage.removeItem(STORAGE_KEY);
+    } catch {
+      /* ignore */
+    }
+    setExpanded(true);
   }
 
   function shareWhatsApp() {
     const text = encodeURIComponent(whatsappPilotMessage());
     window.open(`https://wa.me/?text=${text}`, "_blank", "noopener,noreferrer");
+  }
+
+  if (!ready) {
+    return <aside className="pilot-banner pilot-banner--pending" aria-hidden />;
+  }
+
+  if (!expanded) {
+    return (
+      <aside className="pilot-banner pilot-banner--collapsed" aria-label="מדריך פיילוט">
+        <button
+          type="button"
+          className="pilot-banner-chip"
+          onClick={expand}
+          aria-label="הצג באנר פיילוט"
+          title="פיילוט"
+        >
+          פיילוט
+        </button>
+      </aside>
+    );
   }
 
   return (
@@ -57,8 +86,8 @@ export function PilotBanner() {
         <button
           type="button"
           className="btn btn-ghost btn-small"
-          onClick={dismiss}
-          aria-label="סגור באנר פיילוט"
+          onClick={collapse}
+          aria-label="כווץ באנר פיילוט"
         >
           ×
         </button>
