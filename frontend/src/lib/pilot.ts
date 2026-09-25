@@ -6,15 +6,14 @@ export const PILOT_ONE_LINER =
 export const FEEDBACK_EMAIL =
   process.env.NEXT_PUBLIC_FEEDBACK_EMAIL || "hadarc@live.com";
 
-/** Public app URL once deployed; falls back to current origin in browser. */
+/**
+ * Public production URL. Never fall back to window.location.origin: Vercel
+ * preview/branch URLs are behind Vercel login, so sharing them locks people out.
+ */
+const DEFAULT_PUBLIC_URL = "https://shibutz-scheduler-six.vercel.app";
+
 export function appPublicUrl() {
-  if (typeof window !== "undefined") {
-    return (
-      process.env.NEXT_PUBLIC_APP_URL ||
-      window.location.origin
-    ).replace(/\/$/, "");
-  }
-  return (process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000").replace(
+  return (process.env.NEXT_PUBLIC_APP_URL || DEFAULT_PUBLIC_URL).replace(
     /\/$/,
     ""
   );
